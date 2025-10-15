@@ -1,0 +1,25 @@
+[project]
+name = "yochameleon"
+version = "0.1.0"
+requires-python = ">=3.7, <3.11"
+dependencies = [
+    "autocrop>=1.3.0",
+    "clip",
+    "diffusers",
+    "insightface>=0.7.3",
+    "omegaconf>=2.3.0",
+    "openai>=0.8.0",
+    "opencv-python>=4.12.0.88",
+    "seaborn>=0.12.2",
+    "shortuuid>=1.0.13",
+    "torch>=1.13.1",
+    "torchvision>=0.14.1",
+    "triton",
+    "umap-learn>=0.5.7",
+    "wandb>=0.18.7",
+]
+
+[tool.uv.sources]
+clip = { git = "https://github.com/openai/CLIP.git", rev = "a1d071733d7111c9c014f024669f959182114e33" }
+diffusers = { git = "https://github.com/huggingface/diffusers.git", rev = "2764db3194fc1b5069df7292fd938657d8568995" }
+triton = { git = "https://github.com/openai/triton", subdirectory = "python", rev = "e6216047b8b0aef1fe8da6ca8667a3ad0a016411" }
