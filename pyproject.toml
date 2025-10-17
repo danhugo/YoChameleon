@@ -2,21 +2,25 @@
 name = "yochameleon"
 version = "0.1.0"
 requires-python = ">=3.7, <3.11"
+
+# Important: install torch torrch vision before installing this package
+# uv pip install torch torch vision
+# apt install zlib-dev as dependencies to build triton
 dependencies = [
     "autocrop>=1.3.0",
     "clip",
+    "datasets>=2.13.2",
     "diffusers",
     "insightface>=0.7.3",
     "omegaconf>=2.3.0",
     "openai>=0.8.0",
-    "opencv-python>=4.12.0.88",
+    "opencv-python<=4.12.0.88",
     "seaborn>=0.12.2",
     "shortuuid>=1.0.13",
-    "torch>=1.13.1",
-    "torchvision>=0.14.1",
     "triton",
     "umap-learn>=0.5.7",
     "wandb>=0.18.7",
+    "numpy<2"
 ]
 
 [tool.uv.sources]
