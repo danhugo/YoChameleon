@@ -97,11 +97,6 @@ def get_eval_dataloader(config, processor, image_folder, personalized_prompt=Non
         )
     return eval_dataset
 
-class Config:
-    def __init__(self, config_dict):
-        for key, value in config_dict.items():
-            setattr(self, key, value)
-
 def collate_fn(batch):
     inputs = [item['input'] for item in batch]
     images = [item['image'] for item in batch]

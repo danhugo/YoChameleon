@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=67.0.0"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "yochameleon"
 version = "0.1.0"
@@ -28,3 +32,6 @@ dependencies = [
 clip = { git = "https://github.com/openai/CLIP.git", rev = "a1d071733d7111c9c014f024669f959182114e33" }
 diffusers = { git = "https://github.com/huggingface/diffusers.git", rev = "2764db3194fc1b5069df7292fd938657d8568995" }
 triton = { git = "https://github.com/openai/triton", subdirectory = "python", rev = "e6216047b8b0aef1fe8da6ca8667a3ad0a016411" }
+
+[tool.setuptools.packages.find]
+include = ["*"]

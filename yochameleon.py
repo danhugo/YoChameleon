@@ -1,37 +1,47 @@
 import os
 import torch
 import wandb
-
-import re
-
 import numpy as np
-
 import html
 
 from PIL import Image
 from evaluation.clip_image_similarity import CLIPEvaluator
 from itertools import cycle
 from tqdm import tqdm
-from transformers import ChameleonForConditionalGeneration
+from transformers import ChameleonForConditionalGeneration, ChameleonPreTrainedModel
 from transformers import ChameleonProcessor
 from transformers.image_transforms import to_pil_image
-from utils import Config
-from utils import chameleon_trim_answer
+from utils.helpers import chameleon_trim_answer
+from config.config import GeneralConfig
+from utils.logging import get_logger
 
-def save_generated_images(pixel_values, prompt_short, save_path, sks_name, index):
-    """Save generated images to a specified directory."""
-    for pixel_value in pixel_values:
-        image = to_pil_image(pixel_value.detach().cpu())
-        prompt_short = prompt_short.replace('<reserved16200>', sks_name).replace('.', '')
-        os.makedirs(save_path, exist_ok=True)
-        image.save(f'{save_path}/{prompt_short}_{index}.png')
-        index += 1
-    return index, image
+logger = get_logger(__name__)
+
+def save_generated_images(pixel_values: torch.Tensor, prompt_short: str, save_path: str, sks_name: str, index: int) -> tuple[int, Image.Image]:
+	"""Save generated images to a specified directory. 
+	
+	Return: index, image
+	"""
+	dir = os.path.dirname(save_path)
+	os.makedirs(dir, exist_ok=True)
+	for pixel_value in pixel_values:
+		image: Image.Image = to_pil_image(pixel_value.detach().cpu())
+		prompt_short = prompt_short.replace('<reserved16200>', sks_name).replace('.', '')
+		image.save(f'{save_path}/{prompt_short}_{index}.png')
+		index += 1
+		#TODO: nonsense to return last image only, consider to remove or return list images
+	return index, image
 
 class YoChameleonTrainer:
-	def __init__(self, config):
+	def __init__(self, config: GeneralConfig):
 		self.config = config
-		self.get_model()
+		self.processor: ChameleonProcessor
+		self.model: ChameleonForConditionalGeneration
+		self.processor, self.model = self._get_model()
+		
+		self.identifier = self.config.special_tokens["SKS_TOKEN"]
+		self.latent_tokens_start_index = self.config.special_tokens["LATENT_TOKEN_START"]
+
 		self.prepare_personalized_tokens()
 		self.get_optimizer_and_scheduler(config) # get optimizer and scheduler for pretraining
 		self.setup_logger()
@@ -45,6 +55,13 @@ class YoChameleonTrainer:
 		self.weighted_acc = 0.0
 		self.mean_clip = 0.0
 		self.avg_metric = 0.0
+
+	def _get_model(self) -> tuple[ChameleonProcessor, ChameleonForConditionalGeneration]:
+		"""Return: ChameleonProcessor, ChameleonModel"""
+		processor = ChameleonProcessor.from_pretrained(self.config.model_id)
+		model = ChameleonForConditionalGeneration.from_pretrained(self.config.model_id, device_map="auto", torch_dtype=torch.bfloat16)
+		logger.info(f'Loaded {self.config.model_id}!')
+		return processor, model 
 
 	def get_personalized_prompt(self):
 		return self.sks_prompt
@@ -69,36 +86,32 @@ class YoChameleonTrainer:
 			#
 			#@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
-			print('\n\n            Self-Prompting is enabled!\n\n')
+			logger.info('\n\n            Self-Prompting is enabled!\n\n')
 
-			self.identifier = self.config.special_tokens["SKS_TOKEN"]
 			identifier_token_id = self.processor.tokenizer.convert_tokens_to_ids(self.identifier)
 
-			self.latent_tokens_start_index = self.config.special_tokens["LATENT_TOKEN_START"]
-
-			# generation tokens
+			# generation tokens (TODO: check this belong to visual space)
+			#TODO: understand config of soft token here
 			gen_prefix_tokens = [f'<reserved{self.latent_tokens_start_index+i}>' for i in range(self.config.prefix_token)]
-			# understanding tokens
+			# understanding tokens (TODO: check if this belong to text space)
 			understand_prefix_tokens = [f'<reserved{self.latent_tokens_start_index+self.config.prefix_token+i}>' for i in range(self.config.prefix_token)]
-			personalized_tokens = [self.identifier]
 			
+			personalized_tokens = [self.identifier]
 			personalized_tokens.extend(gen_prefix_tokens)
 			personalized_tokens.extend(understand_prefix_tokens)
 
-			self.understanding_prompt = "".join(understand_prefix_tokens)
 			self.generation_prompt = "".join(gen_prefix_tokens)
+			self.understanding_prompt = "".join(understand_prefix_tokens)
 
 			self.personalized_tokens = personalized_tokens
 			self.personalized_token_ids = self.processor.tokenizer.convert_tokens_to_ids(personalized_tokens)
 
-			print(f'Personalized tokens: {self.personalized_tokens}')
-			print(f'Personalized token ids: {self.personalized_token_ids}')
-			print(f'There are {len(self.personalized_tokens)} personalized tokens')
+			logger.info(f'Personalized tokens: {self.personalized_tokens}')
+			logger.info(f'Personalized token ids: {self.personalized_token_ids}')
+			logger.info(f'There are {len(self.personalized_tokens)} personalized tokens')
 		else:
 			#--- This is train the SAME set of latent tokens for all the tasks
-			self.latent_tokens_start_index = self.config.special_tokens["LATENT_TOKEN_START"]
-			self.identifier = self.config.special_tokens["SKS_TOKEN"]
-
+			# in this setting: prompt is: <sks> is <token>
 			prefix_tokens = [f'<reserved{self.latent_tokens_start_index+i}>' for i in range(self.config.prefix_token)]
 			personalized_tokens = [self.identifier]
 			personalized_tokens.extend(prefix_tokens)
@@ -116,12 +129,6 @@ class YoChameleonTrainer:
 			print(f'Personalized tokens: {self.personalized_tokens}')
 			print(f'Personalized token ids: {self.personalized_token_ids}')
 			print(f'There are {len(self.personalized_tokens)} personalized tokens')
-
-	def get_model(self):
-		self.processor = ChameleonProcessor.from_pretrained(self.config.model_id)
-		self.model = ChameleonForConditionalGeneration.from_pretrained(self.config.model_id, device_map="auto", torch_dtype=torch.bfloat16)
-		print(f'Loaded {self.config.model_id}!')
-		# return processor, model
 
 	def setup_logger(self):
 		# This is for tensorboard, which is not used for this project anymore
@@ -147,11 +154,11 @@ class YoChameleonTrainer:
 
 	def get_optimizer_and_scheduler(self, config):
 		try:
-			config = Config(config)
+			config = GeneralConfig(config)
 		except:
 			config = config # check if config is already a Config object
-		optimizer_config = Config(config.optimizer)
-		scheduler_config = Config(config.scheduler)
+		optimizer_config = config.optimizer
+		scheduler_config = config.scheduler
 		if self.config.whole_model:
 			trainable_params = self.model.model.parameters()
 			optimizer = torch.optim.AdamW(
@@ -269,6 +276,67 @@ class YoChameleonTrainer:
 			print('\n\n\n       The config said I should load from the resume, but I could not find the resume config')
 			print('       Also, check the above error... \n\n\n')
 			exit()
+	
+	def train(self, dataloader):
+		dataloader_iter = cycle(dataloader)
+		if not self.config.no_wandb:
+			self.wandb.log({"Dataset/Train_dataset_length": len(dataloader.dataset)})
+		print('Start training... from iteration:', self.iteration)
+		for iteration in tqdm(range(self.iteration, self.config.iteration)):
+			self.optimizer.zero_grad()
+			batch = next(dataloader_iter)
+			batch['pixel_values'] = batch['pixel_values'].to(self.model.dtype)
+
+			# Process labels with image tokens
+			for i, item in enumerate(batch['labels']):
+				if len(torch.nonzero(batch['labels'][i] == self.config.special_tokens["START_OF_IMAGE_INDEX"])) != 0:
+					soi_index = torch.nonzero(batch['labels'][i] == self.config.special_tokens["START_OF_IMAGE_INDEX"]).item() + 1
+					eot_index = torch.nonzero(batch['labels'][i] == self.config.special_tokens["END_OF_IMAGE_INDEX"]).item()
+					image_tokens = self.model.model.get_image_tokens(pixel_values=batch['pixel_values'][None, i])[0]
+					batch['labels'][i, soi_index:eot_index] = image_tokens
+			for i, item in enumerate(batch['input_ids']):
+				if len(torch.nonzero(batch['input_ids'][i] == self.config.special_tokens["START_OF_IMAGE_INDEX"])) != 0:
+					soi_index = torch.nonzero(batch['input_ids'][i] == self.config.special_tokens["START_OF_IMAGE_INDEX"]).item() + 1
+					eot_index = torch.nonzero(batch['input_ids'][i] == self.config.special_tokens["END_OF_IMAGE_INDEX"]).item()
+					image_tokens = self.model.model.get_image_tokens(pixel_values=batch['pixel_values'][None, i])[0]
+					batch['input_ids'][i, soi_index:eot_index] = image_tokens
+					# print('image tokens added to input_ids')
+			batch = {k: v.to(self.model.device) for k, v in batch.items()}
+
+			# Forward pass
+			output = self.model(
+				input_ids=batch['input_ids'],
+				# pixel_values=batch['pixel_values'],
+				attention_mask=batch['attention_mask'],
+				labels=batch['labels']
+			)
+			loss = output.loss
+			loss.backward()
+			self.optimizer.step()
+			if self.scheduler is not None:
+				self.scheduler.step()
+
+			# Gradient clipping
+			if self.optimizer_config.grad_clip > 0:
+				torch.nn.utils.clip_grad_value_(self.model.model.parameters(), clip_value=self.optimizer_config.grad_clip)
+
+			# Revert embeddings if not training the whole model
+			if not self.config.whole_model:
+				with torch.no_grad():
+					self.model.get_input_embeddings().weight[self.index_no_updates] = self.orig_embeds_params[self.index_no_updates]
+					self.model.lm_head.weight[self.index_no_updates] = self.orig_lm_params[self.index_no_updates]
+
+			# Log loss to W&B
+			if not self.config.no_wandb:
+				self.wandb.log({"loss": loss.item()})
+
+			# Save model checkpoints
+			if iteration % self.config.save_every == 0:
+				self.save_checkpoint(iteration)
+				if self.config.eval_visualization:
+					self.visualize_evaluation()
+			torch.cuda.empty_cache()
+		self.iteration = iteration
 
 	def configure_model(self):
 		if self.config.whole_model:
@@ -372,7 +440,7 @@ class YoChameleonTrainer:
 
 				# Gradient clipping
 				if self.optimizer_config.grad_clip > 0:
-				    torch.nn.utils.clip_grad_value_(self.model.model.parameters(), clip_value=self.optimizer_config.grad_clip)
+					torch.nn.utils.clip_grad_value_(self.model.model.parameters(), clip_value=self.optimizer_config.grad_clip)
 
 				# Revert embeddings if not training the whole model
 				if not self.config.whole_model:
@@ -382,10 +450,246 @@ class YoChameleonTrainer:
 
 				# Log loss to W&B
 				if not self.config.no_wandb:
-				    self.wandb.log({"loss": loss.item()})
+					self.wandb.log({"loss": loss.item()})
+			
 			torch.cuda.empty_cache()
 			self.iteration = iteration
 
+	def train_epoch_disjoin(self, dataloader, recognition_data_loader_train=None, recognition_data_loader_test=None):
+		# dataloader_iter = cycle(dataloader)
+		if not self.config.no_wandb:
+			self.wandb.log({"Dataset/Train_dataset_length": len(dataloader.dataset)})
+		if self.config.eval['clip_sim']:
+			real_images_path = [x for x in sorted(recognition_data_loader_train.image_paths) if self.sks_name in x]
+			real_images = [Image.open(x).convert("RGB") for x in real_images_path]
+		for iteration in tqdm(range(self.config.iteration+1)):
+			# Save model checkpoints
+			if iteration % self.config.save_every == 0:
+				self.save_checkpoint(iteration)
+				if self.config.eval_visualization:
+					visual_dict = self.visualize_evaluation()
+				if self.config.eval['recognition']:
+					train_recog = self.eval_recognition(recognition_data_loader_train, split='train')
+					test_recog = self.eval_recognition(recognition_data_loader_test, split='test')
+				if self.config.eval['clip_sim']:
+					clip_sim = self.eval_clip_similarity(real_images, number_fake_images=self.config.eval['number_fake_images'])
+				if not self.config.no_wandb:
+					#combine results
+					log_dict = {**train_recog, **test_recog, **clip_sim, **visual_dict, **{"eval": iteration}}
+					self.wandb.log(log_dict)
+
+			for batch in tqdm(dataloader):
+				self.optimizer.zero_grad()
+				batch['pixel_values'] = batch['pixel_values'].to(self.model.dtype)
+
+				#@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+				#
+				#          This training will separate the latent tokens into two parts: understanding and generation
+				#
+				#@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+				# Process labels with image tokens
+				# Add a bool to check if the task is generation or understanding
+				
+				bool_img_gen = torch.zeros((len(batch['labels']),), dtype=torch.bool)
+				for i, item in enumerate(batch['labels']):
+					if len(torch.nonzero(batch['labels'][i] == self.config.special_tokens["START_OF_IMAGE_INDEX"])) != 0:
+						soi_index = torch.nonzero(batch['labels'][i] == self.config.special_tokens["START_OF_IMAGE_INDEX"]).item() + 1
+						eot_index = torch.nonzero(batch['labels'][i] == self.config.special_tokens["END_OF_IMAGE_INDEX"]).item()
+						image_tokens = self.model.model.get_image_tokens(pixel_values=batch['pixel_values'][None, i])[0]
+						batch['labels'][i, soi_index:eot_index] = image_tokens
+						bool_img_gen[i] = True
+				# Adding image tokens to the input_ids
+				for i, item in enumerate(batch['input_ids']):
+					if len(torch.nonzero(batch['input_ids'][i] == self.config.special_tokens["START_OF_IMAGE_INDEX"])) != 0:
+						soi_index = torch.nonzero(batch['input_ids'][i] == self.config.special_tokens["START_OF_IMAGE_INDEX"]).item() + 1
+						eot_index = torch.nonzero(batch['input_ids'][i] == self.config.special_tokens["END_OF_IMAGE_INDEX"]).item()
+						image_tokens = self.model.model.get_image_tokens(pixel_values=batch['pixel_values'][None, i])[0]
+						batch['input_ids'][i, soi_index:eot_index] = image_tokens
+						# print('image tokens added to input_ids')
+
+				batch = {k: v.to(self.model.device) for k, v in batch.items()}
+
+				# Forward pass
+				if bool_img_gen.any():
+					output = self.model(
+						input_ids=batch['input_ids'][bool_img_gen],
+						attention_mask=batch['attention_mask'][bool_img_gen],
+						labels=batch['labels'][bool_img_gen]
+					)
+					loss = output.loss
+					loss.backward()
+					self.optimizer.step()
+					with torch.no_grad():
+						self.model.get_input_embeddings().weight[self.index_no_updates_generation] = self.orig_embeds_params[self.index_no_updates_generation]
+						self.model.lm_head.weight[self.index_no_updates_generation] = self.orig_lm_params[self.index_no_updates_generation]
+					# Log loss to W&B
+					if not self.config.no_wandb:
+						self.wandb.log({"loss": loss.item()})
+
+				if bool_img_gen.any():
+					output = self.model(
+						input_ids=batch['input_ids'][~bool_img_gen],
+						attention_mask=batch['attention_mask'][~bool_img_gen],
+						labels=batch['labels'][~bool_img_gen]
+					)
+					loss = output.loss
+					loss.backward()
+					self.optimizer.step()
+					with torch.no_grad():
+						self.model.get_input_embeddings().weight[self.index_no_updates_understand] = self.orig_embeds_params[self.index_no_updates_understand]
+						self.model.lm_head.weight[self.index_no_updates_understand] = self.orig_lm_params[self.index_no_updates_understand]
+								# Log loss to W&B
+					if not self.config.no_wandb:
+						self.wandb.log({"loss": loss.item()})
+				if self.scheduler is not None:
+					self.scheduler.step()
+
+				# Gradient clipping
+				if self.optimizer_config.grad_clip > 0:
+					torch.nn.utils.clip_grad_value_(self.model.model.parameters(), clip_value=self.optimizer_config.grad_clip)
+
+			# Save model checkpoints
+			# if iteration % self.config.save_every == 0:
+			# 	self.save_checkpoint(iteration)
+			# 	if self.config.eval_visualization:
+			# 		self.visualize_evaluation()
+			# 	if self.config.eval['recognition']:
+			# 		self.eval_recognition(recognition_data_loader_train, split='train')
+			# 		self.eval_recognition(recognition_data_loader_test, split='test')
+			torch.cuda.empty_cache()
+			self.iteration = iteration
+
+	def finetune(self, dataloader):
+		# this code is similar to train, but it is used for finetuning
+		self.get_optimizer_and_scheduler(self.config.finetune)
+		dataloader_iter = cycle(dataloader)
+		if not self.config.no_wandb:
+			self.wandb.log({"Dataset/Finetune_dataset_length": len(dataloader.dataset)})
+
+		total_iter = self.iteration + self.config.finetune['finetune_iteration']
+		for iteration in tqdm(range(self.iteration, total_iter)):
+			self.optimizer.zero_grad()
+			batch = next(dataloader_iter)
+			batch['pixel_values'] = batch['pixel_values'].to(self.model.dtype)
+
+			# Process labels with image tokens
+			for i, item in enumerate(batch['labels']):
+				if len(torch.nonzero(batch['labels'][i] == self.config.special_tokens["START_OF_IMAGE_INDEX"])) != 0:
+					soi_index = torch.nonzero(batch['labels'][i] == self.config.special_tokens["START_OF_IMAGE_INDEX"]).item() + 1
+					eot_index = torch.nonzero(batch['labels'][i] == self.config.special_tokens["END_OF_IMAGE_INDEX"]).item()
+					image_tokens = self.model.model.get_image_tokens(pixel_values=batch['pixel_values'][None, i])[0]
+					batch['labels'][i, soi_index:eot_index] = image_tokens
+			for i, item in enumerate(batch['input_ids']):
+				if len(torch.nonzero(batch['input_ids'][i] == self.config.special_tokens["START_OF_IMAGE_INDEX"])) != 0:
+					soi_index = torch.nonzero(batch['input_ids'][i] == self.config.special_tokens["START_OF_IMAGE_INDEX"]).item() + 1
+					eot_index = torch.nonzero(batch['input_ids'][i] == self.config.special_tokens["END_OF_IMAGE_INDEX"]).item()
+					image_tokens = self.model.model.get_image_tokens(pixel_values=batch['pixel_values'][None, i])[0]
+					batch['input_ids'][i, soi_index:eot_index] = image_tokens
+					# print('image tokens added to input_ids')
+			batch = {k: v.to(self.model.device) for k, v in batch.items()}
+
+			# Forward pass
+			output = self.model(
+				input_ids=batch['input_ids'],
+				# pixel_values=batch['pixel_values'],
+				attention_mask=batch['attention_mask'],
+				labels=batch['labels']
+			)
+			loss = output.loss
+			loss.backward()
+			self.optimizer.step()
+			if self.scheduler is not None:
+				self.scheduler.step()
+
+			# Gradient clipping
+			if self.optimizer_config.grad_clip > 0:
+				torch.nn.utils.clip_grad_value_(self.model.model.parameters(), clip_value=self.optimizer_config.grad_clip)
+
+			# Revert embeddings if not training the whole model
+			if not self.config.whole_model:
+				with torch.no_grad():
+					self.model.get_input_embeddings().weight[self.index_no_updates] = self.orig_embeds_params[self.index_no_updates]
+					self.model.lm_head.weight[self.index_no_updates] = self.orig_lm_params[self.index_no_updates]
+
+			# Log loss to W&B
+			if not self.config.no_wandb:
+				self.wandb.log({"loss": loss.item()})
+
+			# Save model checkpoints
+			if iteration % self.config.finetune['save_every'] == 0:
+				self.save_checkpoint(iteration, finetune=True)
+				if self.config.eval_visualization:
+					self.visualize_evaluation()
+			torch.cuda.empty_cache()
+		self.iteration = iteration
+	
+	def finetune_epoch(self, dataloader):
+		# this code is similar to train, but it is used for finetuning
+		self.get_optimizer_and_scheduler(self.config.finetune)
+		
+		if not self.config.no_wandb:
+			self.wandb.log({"Dataset/Finetune_dataset_length": len(dataloader.dataset)})
+		# dataloader_iter = cycle(dataloader)
+		total_iter = self.iteration + self.config.finetune['finetune_iteration']
+		for iteration in tqdm(range(self.iteration, total_iter)):
+			for batch in tqdm(dataloader):
+				self.optimizer.zero_grad()
+
+				batch['pixel_values'] = batch['pixel_values'].to(self.model.dtype)
+
+				# Process labels with image tokens
+				
+				for i, item in enumerate(batch['labels']):
+					if len(torch.nonzero(batch['labels'][i] == self.config.special_tokens["START_OF_IMAGE_INDEX"])) != 0:
+						soi_index = torch.nonzero(batch['labels'][i] == self.config.special_tokens["START_OF_IMAGE_INDEX"]).item() + 1
+						eot_index = torch.nonzero(batch['labels'][i] == self.config.special_tokens["END_OF_IMAGE_INDEX"]).item()
+						image_tokens = self.model.model.get_image_tokens(pixel_values=batch['pixel_values'][None, i])[0]
+						batch['labels'][i, soi_index:eot_index] = image_tokens
+				
+				for i, item in enumerate(batch['input_ids']):
+					if len(torch.nonzero(batch['input_ids'][i] == self.config.special_tokens["START_OF_IMAGE_INDEX"])) != 0:
+						soi_index = torch.nonzero(batch['input_ids'][i] == self.config.special_tokens["START_OF_IMAGE_INDEX"]).item() + 1
+						eot_index = torch.nonzero(batch['input_ids'][i] == self.config.special_tokens["END_OF_IMAGE_INDEX"]).item()
+						image_tokens = self.model.model.get_image_tokens(pixel_values=batch['pixel_values'][None, i])[0]
+						batch['input_ids'][i, soi_index:eot_index] = image_tokens
+				batch = {k: v.to(self.model.device) for k, v in batch.items()}
+
+				# Forward pass
+				output = self.model(
+					input_ids=batch['input_ids'],
+					# pixel_values=batch['pixel_values'],
+					attention_mask=batch['attention_mask'],
+					labels=batch['labels']
+				)
+				loss = output.loss
+				loss.backward()
+				self.optimizer.step()
+				if self.scheduler is not None:
+					self.scheduler.step()
+
+				# Gradient clipping
+				if self.optimizer_config.grad_clip > 0:
+					torch.nn.utils.clip_grad_value_(self.model.model.parameters(), clip_value=self.optimizer_config.grad_clip)
+
+				# Revert embeddings if not training the whole model
+				if not self.config.whole_model:
+					with torch.no_grad():
+						self.model.get_input_embeddings().weight[self.index_no_updates] = self.orig_embeds_params[self.index_no_updates]
+						self.model.lm_head.weight[self.index_no_updates] = self.orig_lm_params[self.index_no_updates]
+
+				# Log loss to W&B
+				if not self.config.no_wandb:
+					self.wandb.log({"loss": loss.item()})
+
+			# Save model checkpoints
+			if iteration % self.config.finetune['save_every'] == 0:
+				self.save_checkpoint(iteration, finetune=True)
+				if self.config.eval_visualization:
+					self.visualize_evaluation()
+			torch.cuda.empty_cache()
+		self.iteration = iteration
+	
 	@torch.no_grad()
 	def test(self):
 		config_test = Config(self.config.test)
