@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
 from typing import Literal
 from config.consts import AllModelEnum, ChameleonModelName
 
@@ -23,6 +23,8 @@ class ResumeConfig(BaseModel):
     resume_iteration: int
     savedir: str
     exp_name: str
+    gen_exp_name: str | None
+    understand_exp_name: str | None
 
 
 class FineTuneConfig(BaseModel):
@@ -67,6 +69,8 @@ class GeneralConfig(BaseModel):
     project_name: str = "YoChameleon"
     entity: str
     exp_name: str
+    savedir: str
+    sks_name: str = Field(description="name of personalized object to overwrite SKS_NAME in json_file")
     
     model_id: AllModelEnum = ChameleonModelName.LENOY_ANOLE_7B_V01
     data_root: str
@@ -79,7 +83,6 @@ class GeneralConfig(BaseModel):
         'data/train/SKS_NAME/json/1000E.json'
     ])
 
-    sks_name: str = Field(description="name of personalized object to overwrite SKS_NAME in json_file")
     prefix_token: int
 
     different_identifier: bool
@@ -89,11 +92,16 @@ class GeneralConfig(BaseModel):
         default=False, 
         description="the model will be trained on all tasks (recognition, gen) with same tokens, or seperate"
         )
+    
+    @computed_field
+    @property
+    def save_location(self) -> str:
+        return f'{self.savedir}/{self.exp_name}/{self.sks_name}'
 
     iteration: int
     epoch: int
     batch_size: int
-    savedir: str
+
     save_every: int
 
     whole_model: bool

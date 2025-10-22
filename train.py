@@ -72,18 +72,12 @@ if __name__ == '__main__':
     )
     if config.epoch > 0: #If you want to train with epoch... Fine, here you go
         config.iteration = config.epoch
-        if config.task_disjoin:
-            logger.info('\n\n\n   Hello, this script will train with task disjoin !!!\n\n\n')
-            trainer.train_epoch_disjoin(
-                train_dataloader,
-                recognition_dataloader_train,
-                recognition_dataloader_test)
-        else:
-            trainer.train_epoch(
-                train_dataloader,
-                recognition_dataloader_train,
-                recognition_dataloader_test
-                )
+
+        trainer.train_epoch(
+            train_dataloader,
+            recognition_dataloader_train,
+            recognition_dataloader_test
+            )
 
         # -- Thao: Maybe we should move this to the finetuning stage for all
         if config.finetune['finetune']:

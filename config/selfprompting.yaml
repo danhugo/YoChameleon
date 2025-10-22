@@ -55,6 +55,7 @@ resume:
   resume_iteration: 15
   savedir: '/sensei-fs/users/thaon/ckpt-1103/'
   exp_name: '1000disjoin'
+  gen_exp_name: 'gen_exp' #TODO: checkout this part
 
 finetune:
   finetune: False

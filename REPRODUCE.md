@@ -56,3 +56,5 @@ commit: 6b08ce4f67fef36b2afb3bdfd571c6dabfdd3d6b
 - yochameleon.py Yochameleon Trainer: train_epoch_disjoin, train_api, finetune_epoch, train, finetune
   - current: only train_epoch remains 
 last commit: 6aef5d1
+
+- update: training_disjoin is no longer supported

@@ -8,7 +8,6 @@ import sys
 
 from PIL import Image
 from dataset import PersonalizedDataset
-from dataset import PersonalizedDataset_Disjoin
 from dataset import PersonalizedDataset_SelfPrompting
 from dataset import RecognitionData
 from dataset import RecognitionData_SelfPrompting
@@ -31,21 +30,9 @@ def get_dataloader_iter(config, processor, only_positive=False, personalized_pro
                 END_OF_TURN=config.special_tokens["END_OF_TURN"],
                 only_positive=True,
                 personalized_prompt=personalized_prompt,
-                task_disjoin=config.task_disjoin
             )
     else:
-        if config.task_disjoin:
-            print('\n\n\n Using PersonalizedDataset_Disjoin \n\n\n')
-            train_dataset = PersonalizedDataset_Disjoin(
-                json_file=config.json_file,
-                processor=processor,
-                placeholder_token=config.special_tokens["SKS_TOKEN"],
-                tokenizer_max_length=config.tokenizer_max_length,
-                END_OF_TURN=config.special_tokens["END_OF_TURN"],
-                personalized_prompt=personalized_prompt,
-                task_disjoin=config.task_disjoin
-            )
-        elif config.self_prompting:
+        if config.self_prompting:
             print('\n\n\n Using PersonalizedDataset_SelfPrompting \n\n\n')
             train_dataset = PersonalizedDataset_SelfPrompting(
                 config=config,
@@ -60,7 +47,6 @@ def get_dataloader_iter(config, processor, only_positive=False, personalized_pro
                     tokenizer_max_length=config.tokenizer_max_length,
                     END_OF_TURN=config.special_tokens["END_OF_TURN"],
                     personalized_prompt=personalized_prompt,
-                    task_disjoin=config.task_disjoin,
                     model_id=config.model_id
                 )
     train_dataloader = torch.utils.data.DataLoader(

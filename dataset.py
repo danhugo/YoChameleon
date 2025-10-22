@@ -43,7 +43,6 @@ class PersonalizedDataset(Dataset):
         END_OF_TURN: int = 8710,
         only_positive: bool = False,
         personalized_prompt: str = None,
-        task_disjoin: bool = False,
         model_id: str = 'leloy/Anole-7b-v0.1-hf',
     ):
         self.processor = processor
@@ -58,7 +57,6 @@ class PersonalizedDataset(Dataset):
             self.chat_template = "{% for message in messages %}{% if not (loop.first and message['from'] != 'human') %}{{ message['value'] }}{% if not loop.last %}<reserved08706>{% endif %}{% endif %}{% endfor %}"
         else:
             raise ValueError(f"Dataloader for {model_id} is not supported yet~")
-        self.task_disjoin = task_disjoin
         data = []
         try:
             for file in json_file:
@@ -161,86 +159,6 @@ class PersonalizedDataset(Dataset):
             labels[eot_indices+2:] = clone_inputs[eot_indices+2:]
         else:
             raise ValueError(f"Dataloader for {self.model_id} is not supported yet~")
-        example['labels'] = labels
-        return example
-
-class PersonalizedDataset_Disjoin(Dataset):
-    # Update 11/03/2024: This idea is not supported anymore...
-    def __init__(
-        self,
-        json_file=None,
-        placeholder_token="<reserved16200>",
-        center_crop=False,
-        repeat=10,
-        tokenizer_max_length=2048, 
-        processor: ChameleonProcessor = None,
-        END_OF_TURN: int = 8710,
-        personalized_prompt: str = None,
-        task_disjoin: bool = False,
-    ):
-        self.processor = processor
-        self.placeholder_token = placeholder_token
-        self.max_length = tokenizer_max_length
-        self.personalized_prompt = personalized_prompt
-        self.END_OF_TURN = END_OF_TURN
-        self.chat_template = "{% for message in messages %}{% if not (loop.first and message['from'] != 'human') %}{{ message['value'] }}{% if not loop.last %}<reserved08706>{% endif %}{% endif %}{% endfor %}"
-        self.task_disjoin = task_disjoin
-        data = []
-        try:
-            for file in json_file:
-                print(f"Loading {file}")
-                with open(file) as f:
-                    info = json.load(f)
-                    data.extend(info)
-        except Exception as e:
-            print(e)
-            print('Could you please check the json file path?')
-        self.data = data
-        self.flip_transform = transforms.RandomHorizontalFlip()
-
-    def __len__(self):
-        return len(self.data)
-
-    def __getitem__(self, i):
-        image_paths = self.data[i]['image']
-        images = [Image.open(image_path).convert("RGB") for image_path in image_paths]
-        images = [self.flip_transform(image) for image in images]
-
-        conv = self.data[i]['conversations']
-
-        understanding_tokens = [f'<reserved{16+16201+i}>' for i in range(16)]
-        generation_tokens = [f'<reserved{16201+i}>' for i in range(16)]
-        understanding_prompt = "".join(understanding_tokens)
-        generation_prompt = "".join(generation_tokens)
-
-        # Manually added personalized prompt for text-only generation and image understanding
-        if conv[-1]['value'] != "<image>":
-            conv[0]['value'] = f'{self.personalized_prompt} {conv[0]["value"]}'
-        else:
-            caption = conv[0]['value'].split('.')[0]
-            conv[0]['value'] = f'{caption}{understanding_prompt}. A photo of <reserved16200>.'
-
-        conversations = self.processor.apply_chat_template(conv, chat_template=self.chat_template)
-        full_text = conversations.replace("<sks>", self.placeholder_token)
-        example = self.processor(
-            text=full_text,
-            images=images,
-            padding="max_length",
-            max_length=self.max_length,
-            )
-
-        example['input_ids'] = example['input_ids'][0]
-        example['attention_mask'] = example['attention_mask'][0]
-        example['pixel_values'] = example['pixel_values'][0]
-
-        clone_inputs = example['input_ids'].clone()
-        eot_indices = (clone_inputs == self.END_OF_TURN).nonzero()[:]
-        
-        # Initialize a mask with the same shape as the tensor, filled with -100 (mask out question)
-        labels = torch.full(clone_inputs.shape, -100)
-        for start_idx, end_idx in zip(eot_indices[0::2]+1, eot_indices[1::2]):
-            cur_labels = clone_inputs[start_idx:end_idx+1]
-            labels[start_idx:end_idx+1] = cur_labels
         example['labels'] = labels
         return example
 
@@ -461,16 +379,7 @@ if __name__ == "__main__":
     personalized_tokens = [f'<reserved16200>'] + prefix_tokens
     personalized_prompt = f"{personalized_tokens[0]} is {''.join(personalized_tokens[1:])}."
 
-    if config.task_disjoin:
-        train_dataset = PersonalizedDataset_Disjoin(
-            json_file=config.json_file,
-            processor=processor,
-            tokenizer_max_length=config.tokenizer_max_length,
-            END_OF_TURN=config.special_tokens["END_OF_TURN"],
-            personalized_prompt=personalized_prompt,
-            task_disjoin=config.task_disjoin,
-            )
-    elif config.self_prompting:
+    if config.self_prompting:
         train_dataset = PersonalizedDataset_SelfPrompting(
             config,
             processor=processor,
@@ -482,7 +391,6 @@ if __name__ == "__main__":
                 tokenizer_max_length=config.tokenizer_max_length,
                 END_OF_TURN=config.special_tokens["END_OF_TURN"],
                 personalized_prompt=personalized_prompt,
-                task_disjoin=config.task_disjoin,
                 model_id=config.model_id
                 )
     for i in range(len(train_dataset)):

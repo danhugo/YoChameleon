@@ -35,8 +35,6 @@ def save_generated_images(pixel_values: torch.Tensor, prompt_short: str, save_pa
 class YoChameleonTrainer:
 	def __init__(self, config: GeneralConfig):
 		self.config = config
-		self.processor: ChameleonProcessor
-		self.model: ChameleonForConditionalGeneration
 		self.processor, self.model = self._get_model()
 		
 		self.identifier = self.config.special_tokens["SKS_TOKEN"]
@@ -109,26 +107,12 @@ class YoChameleonTrainer:
 
 		return personalized_tokens, personalized_token_ids, generation_prompt, understanding_prompt
 
-	def get_personalized_prompt(self):
-		return self.sks_prompt
-
-	def get_understanding_prompt(self):
-		if self.config.self_prompting:
-			return self.understanding_prompt
-		else:
-			return None
-
-	def get_generation_prompt(self):
-		if self.config.self_prompting:
-			return self.generation_prompt
-		else:
-			return None
-
 	def setup_logger(self):
-		self.save_location = f'{self.config.savedir}/{self.config.exp_name}/{self.config.sks_name}'
-		os.makedirs(self.save_location, exist_ok=True)
+		"""Setup wandb logger"""
+		os.makedirs(self.config.save_location, exist_ok=True)
 		if not self.config.no_wandb:
-			self.wandb = wandb.init(project=self.config.project_name,
+			self.wandb = wandb.init(
+				project=self.config.project_name,
 				name=self.config.exp_name + '-' + self.config.sks_name,
 				entity=self.config.entity,
 				config=self.config)
@@ -140,9 +124,8 @@ class YoChameleonTrainer:
 			self.wandb.define_metric("Text", step_metric="eval")
 		else:
 			self.wandb = None
-
-	def get_optimizer_and_scheduler(self, config):
-		config = GeneralConfig(config)
+	
+	def get_optimizer_and_scheduler(self, config: GeneralConfig):
 		optimizer_config = config.optimizer
 		scheduler_config = config.scheduler
 
@@ -168,30 +151,49 @@ class YoChameleonTrainer:
 			scheduler = None
 		self.optimizer, self.scheduler, self.optimizer_config, self.scheduler_config = optimizer, scheduler, optimizer_config, scheduler_config
 
-	def save_checkpoint(self, iteration, finetune=False):
-		# if type(iteration) == int:
-		# 	iteration=iteration+1 # increment iteration to save the correct iteration as python starts from 0
-		if finetune:
-			save_path_token = os.path.join(self.save_location, f'{iteration}-token-ft.pt')
-			save_path_lmhead = os.path.join(self.save_location, f'{iteration}-lmhead-ft.pt')
+
+	# --- get prompt for data loader ------
+	def get_personalized_prompt(self):
+		return self.sks_prompt
+
+	def get_understanding_prompt(self):
+		if self.config.self_prompting:
+			return self.understanding_prompt
 		else:
-			save_path_token = os.path.join(self.save_location, f'{iteration}-token.pt')
-			save_path_lmhead = os.path.join(self.save_location, f'{iteration}-lmhead.pt')
+			return None
+
+	def get_generation_prompt(self):
+		if self.config.self_prompting:
+			return self.generation_prompt
+		else:
+			return None
+	# -------------------------------------
+
+	def save_checkpoint(self, iteration:int, finetune:bool=False):
+		tail = ""
+		if finetune:
+			tail = "-ft"
+		
+		save_path_token = os.path.join(self.config.save_location, f'{iteration}-token{tail}.pt')
+		save_path_lmhead = os.path.join(self.config.save_location, f'{iteration}-lmhead{tail}.pt')
+		
 		torch.save(self.model.get_input_embeddings().weight.data[self.personalized_token_ids], save_path_token)
-		print('Saved token embeddings at: ', save_path_token)
+		logger.info('Saved token embeddings at: ', save_path_token)
 
 		if self.config.whole_model:
-			torch.save(self.model.model.state_dict(), os.path.join(self.save_location, f'{iteration}-model.pt'))
-			print('Saved whole model at: ', os.path.join(self.save_location, f'{iteration}-model.pt'))
+			save_path_model = os.path.join(self.config.save_location, f'{iteration}-model.pt')
+			torch.save(self.model.model.state_dict(), save_path_model)
+			logger.info('Saved whole model at: ', save_path_model)
 		else:
+			#TODO: document: lm_head.weight.data size (vocab_size, hidden_dim)
+			#TODO: document: only save lm_head of soft token
 			torch.save(self.model.lm_head.weight.data[self.personalized_token_ids], save_path_lmhead)
-			print('Saved lm_head at: ', save_path_lmhead)
+			logger.info('Saved lm_head at: ', save_path_lmhead)
 
-
-	def load_prefix(self, config_resume, exp_name, resume_token_ids):
-		lm_head_path = os.path.join(config_resume.savedir, exp_name, self.config.sks_name, f"{config_resume.resume_iteration}-lmhead.pt")
-		embedding_path = os.path.join(config_resume.savedir, exp_name, self.config.sks_name, f"{config_resume.resume_iteration}-token.pt")
-		# Load language model head
+	def load_prefix(self, resume_token_ids):
+		lm_head_path = os.path.join(self.config.resume.savedir, self.config.resume.exp_name, self.config.sks_name, f"{self.config.resume.resume_iteration}-lmhead.pt")
+		embedding_path = os.path.join(self.config.resume.savedir, self.config.resume.exp_name, self.config.sks_name, f"{self.config.resume.resume_iteration}-token.pt")
+		# Load language model head (only section of personalized token in lm_head were stored)
 		lm_head = torch.load(lm_head_path, map_location='cuda').to(self.model.lm_head.weight.data.device)
 		lm_head = lm_head.to(self.model.dtype)
 		self.model.lm_head.weight.data[resume_token_ids] = lm_head
@@ -200,20 +202,18 @@ class YoChameleonTrainer:
 		embeddings = torch.load(embedding_path).to(self.model.device).to(self.model.dtype)
 		self.model.get_input_embeddings().weight.data[resume_token_ids] = embeddings
 
-		print('\n\n\n           ATTENTION -- PLEASE YOU CHECK IF THE RESUME IS CORRECT!\n\n\n')
-		print(f'\n\n\n Resume tokens ids: {resume_token_ids} \n From: {exp_name} at epochs {config_resume.resume_iteration}\n\n\n')
+		logger.info('\n\n\n           ATTENTION -- PLEASE YOU CHECK IF THE RESUME IS CORRECT!\n\n\n')
+		logger.info(f'\n\n\n Resume tokens ids: {resume_token_ids} \n From: {self.config.resume.exp_name} at epochs {self.config.resume.resume_iteration}\n\n\n')
 
-	def load_prefix_mixture(self, config_resume, resume_token_ids):
-		# import
-		
-		gen_lm_head_path = os.path.join(config_resume.savedir, config_resume.gen_exp_name, self.config.sks_name, f"{config_resume.resume_iteration}-lmhead.pt")
-		gen_embedding_path = os.path.join(config_resume.savedir, config_resume.gen_exp_name, self.config.sks_name, f"{config_resume.resume_iteration}-token.pt")
+	def load_prefix_mixture(self, resume_token_ids):
+		gen_lm_head_path = os.path.join(self.config.resume.savedir, self.config.resume.gen_exp_name, self.config.sks_name, f"{self.config.resume.resume_iteration}-lmhead.pt")
+		gen_embedding_path = os.path.join(self.config.resume.savedir, self.config.resume.gen_exp_name, self.config.sks_name, f"{self.config.resume.resume_iteration}-token.pt")
 		gen_lm_head = torch.load(gen_lm_head_path, map_location='cuda').to(self.model.lm_head.weight.data.device)
 		gen_lm_head = gen_lm_head.to(self.model.dtype)
 		gen_embeddings = torch.load(gen_embedding_path).to(self.model.device).to(self.model.dtype)
 
-		understand_lm_head_path = os.path.join(config_resume.savedir, config_resume.understand_exp_name, self.config.sks_name, f"{config_resume.resume_iteration}-lmhead.pt")
-		understand_embedding_path = os.path.join(config_resume.savedir, config_resume.understand_exp_name, self.config.sks_name, f"{config_resume.resume_iteration}-token.pt")
+		understand_lm_head_path = os.path.join(self.config.resume.savedir, self.config.resume.understand_exp_name, self.config.sks_name, f"{self.config.resume.resume_iteration}-lmhead.pt")
+		understand_embedding_path = os.path.join(self.config.resume.savedir, self.config.resume.understand_exp_name, self.config.sks_name, f"{self.config.resume.resume_iteration}-token.pt")
 		understand_lm_head = torch.load(understand_lm_head_path, map_location='cuda').to(self.model.lm_head.weight.data.device)
 		understand_lm_head = understand_lm_head.to(self.model.dtype)
 		understand_embeddings = torch.load(understand_embedding_path).to(self.model.device).to(self.model.dtype)
@@ -230,18 +230,18 @@ class YoChameleonTrainer:
 		self.model.get_input_embeddings().weight.data[self.generation_prefix_token_ids] = gen_embeddings[1:len(self.generation_prefix_token_ids)+1]
 		print('\n\n\n           ATTENTION -- PLEASE YOU CHECK IF THE RESUME IS CORRECT!\n\n\n')
 		print(f'\n\n\n Resume tokens ids: {resume_token_ids} \n')
-		print(f'        Understanding from... : {config_resume.understand_exp_name} at epochs {config_resume.resume_iteration}')
-		print(f'        Generation from... : {config_resume.gen_exp_name} at epochs {config_resume.resume_iteration}\n\n\n')
+		print(f'        Understanding from... : {self.config.resume.understand_exp_name} at epochs {self.config.resume.resume_iteration}')
+		print(f'        Generation from... : {self.config.resume.gen_exp_name} at epochs {self.config.resume.resume_iteration}\n\n\n')
 
 	def resume_training(self):
 		try:
 			if self.config.resume['resume']:
 				print('Resuming training... from iteration:', self.config.resume['resume_iteration'])
-				config_resume = Config(self.config.resume)
 				# embedding_path = f'{config_resume.savedir}/{config_resume.exp_name}/{self.config.sks_name}/{config_resume.resume_iteration}-token.pt'
 				try:
+					#TODO: let's think about why task_disjoin still here
 					if self.config.task_disjoin:
-						self.load_prefix_mixture(config_resume, self.personalized_tokens)
+						self.load_prefix_mixture(self.personalized_tokens)
 					else: # no task disjoin -- just load from the saved personalized tokens
 						self.load_prefix(config_resume, config.resume.exp_name, self.personalized_token_ids)
 				except Exception as e:
@@ -327,19 +327,10 @@ class YoChameleonTrainer:
 			self.model.model.vqmodel.requires_grad_(False)
 			self.index_no_updates = torch.zeros((len(self.processor.tokenizer),), dtype=torch.bool)
 		else:
-			if self.config.task_disjoin:
-				self.model.model.requires_grad_(False)
-				self.model.model.embed_tokens.weight.requires_grad_(True)
-				self.index_no_updates_understand = torch.ones((len(self.processor.tokenizer),), dtype=torch.bool)
-				self.index_no_updates_understand[self.understand_prefix_token_ids] = False
-
-				self.index_no_updates_generation = torch.ones((len(self.processor.tokenizer),), dtype=torch.bool)
-				self.index_no_updates_generation[self.generation_prefix_token_ids] = False
-			else:
-				self.model.model.requires_grad_(False)
-				self.model.model.embed_tokens.weight.requires_grad_(True)
-				self.index_no_updates = torch.ones((len(self.processor.tokenizer),), dtype=torch.bool)
-				self.index_no_updates[self.personalized_token_ids] = False
+			self.model.model.requires_grad_(False)
+			self.model.model.embed_tokens.weight.requires_grad_(True)
+			self.index_no_updates = torch.ones((len(self.processor.tokenizer),), dtype=torch.bool)
+			self.index_no_updates[self.personalized_token_ids] = False
 
 	def train_epoch(self, dataloader, recognition_data_loader_train=None, recognition_data_loader_test=None):
 		if not self.config.no_wandb:
@@ -434,111 +425,6 @@ class YoChameleonTrainer:
 				if not self.config.no_wandb:
 					self.wandb.log({"loss": loss.item()})
 			
-			torch.cuda.empty_cache()
-			self.iteration = iteration
-
-	def train_epoch_disjoin(self, dataloader, recognition_data_loader_train=None, recognition_data_loader_test=None):
-		# dataloader_iter = cycle(dataloader)
-		if not self.config.no_wandb:
-			self.wandb.log({"Dataset/Train_dataset_length": len(dataloader.dataset)})
-		if self.config.eval['clip_sim']:
-			real_images_path = [x for x in sorted(recognition_data_loader_train.image_paths) if self.sks_name in x]
-			real_images = [Image.open(x).convert("RGB") for x in real_images_path]
-		for iteration in tqdm(range(self.config.iteration+1)):
-			# Save model checkpoints
-			if iteration % self.config.save_every == 0:
-				self.save_checkpoint(iteration)
-				if self.config.eval_visualization:
-					visual_dict = self.visualize_evaluation()
-				if self.config.eval['recognition']:
-					train_recog = self.eval_recognition(recognition_data_loader_train, split='train')
-					test_recog = self.eval_recognition(recognition_data_loader_test, split='test')
-				if self.config.eval['clip_sim']:
-					clip_sim = self.eval_clip_similarity(real_images, number_fake_images=self.config.eval['number_fake_images'])
-				if not self.config.no_wandb:
-					#combine results
-					log_dict = {**train_recog, **test_recog, **clip_sim, **visual_dict, **{"eval": iteration}}
-					self.wandb.log(log_dict)
-
-			for batch in tqdm(dataloader):
-				self.optimizer.zero_grad()
-				batch['pixel_values'] = batch['pixel_values'].to(self.model.dtype)
-
-				#@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-				#
-				#          This training will separate the latent tokens into two parts: understanding and generation
-				#
-				#@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-
-				# Process labels with image tokens
-				# Add a bool to check if the task is generation or understanding
-				
-				bool_img_gen = torch.zeros((len(batch['labels']),), dtype=torch.bool)
-				for i, item in enumerate(batch['labels']):
-					if len(torch.nonzero(batch['labels'][i] == self.config.special_tokens["START_OF_IMAGE_INDEX"])) != 0:
-						soi_index = torch.nonzero(batch['labels'][i] == self.config.special_tokens["START_OF_IMAGE_INDEX"]).item() + 1
-						eot_index = torch.nonzero(batch['labels'][i] == self.config.special_tokens["END_OF_IMAGE_INDEX"]).item()
-						image_tokens = self.model.model.get_image_tokens(pixel_values=batch['pixel_values'][None, i])[0]
-						batch['labels'][i, soi_index:eot_index] = image_tokens
-						bool_img_gen[i] = True
-				# Adding image tokens to the input_ids
-				for i, item in enumerate(batch['input_ids']):
-					if len(torch.nonzero(batch['input_ids'][i] == self.config.special_tokens["START_OF_IMAGE_INDEX"])) != 0:
-						soi_index = torch.nonzero(batch['input_ids'][i] == self.config.special_tokens["START_OF_IMAGE_INDEX"]).item() + 1
-						eot_index = torch.nonzero(batch['input_ids'][i] == self.config.special_tokens["END_OF_IMAGE_INDEX"]).item()
-						image_tokens = self.model.model.get_image_tokens(pixel_values=batch['pixel_values'][None, i])[0]
-						batch['input_ids'][i, soi_index:eot_index] = image_tokens
-						# print('image tokens added to input_ids')
-
-				batch = {k: v.to(self.model.device) for k, v in batch.items()}
-
-				# Forward pass
-				if bool_img_gen.any():
-					output = self.model(
-						input_ids=batch['input_ids'][bool_img_gen],
-						attention_mask=batch['attention_mask'][bool_img_gen],
-						labels=batch['labels'][bool_img_gen]
-					)
-					loss = output.loss
-					loss.backward()
-					self.optimizer.step()
-					with torch.no_grad():
-						self.model.get_input_embeddings().weight[self.index_no_updates_generation] = self.orig_embeds_params[self.index_no_updates_generation]
-						self.model.lm_head.weight[self.index_no_updates_generation] = self.orig_lm_params[self.index_no_updates_generation]
-					# Log loss to W&B
-					if not self.config.no_wandb:
-						self.wandb.log({"loss": loss.item()})
-
-				if bool_img_gen.any():
-					output = self.model(
-						input_ids=batch['input_ids'][~bool_img_gen],
-						attention_mask=batch['attention_mask'][~bool_img_gen],
-						labels=batch['labels'][~bool_img_gen]
-					)
-					loss = output.loss
-					loss.backward()
-					self.optimizer.step()
-					with torch.no_grad():
-						self.model.get_input_embeddings().weight[self.index_no_updates_understand] = self.orig_embeds_params[self.index_no_updates_understand]
-						self.model.lm_head.weight[self.index_no_updates_understand] = self.orig_lm_params[self.index_no_updates_understand]
-								# Log loss to W&B
-					if not self.config.no_wandb:
-						self.wandb.log({"loss": loss.item()})
-				if self.scheduler is not None:
-					self.scheduler.step()
-
-				# Gradient clipping
-				if self.optimizer_config.grad_clip > 0:
-					torch.nn.utils.clip_grad_value_(self.model.model.parameters(), clip_value=self.optimizer_config.grad_clip)
-
-			# Save model checkpoints
-			# if iteration % self.config.save_every == 0:
-			# 	self.save_checkpoint(iteration)
-			# 	if self.config.eval_visualization:
-			# 		self.visualize_evaluation()
-			# 	if self.config.eval['recognition']:
-			# 		self.eval_recognition(recognition_data_loader_train, split='train')
-			# 		self.eval_recognition(recognition_data_loader_test, split='test')
 			torch.cuda.empty_cache()
 			self.iteration = iteration
 
