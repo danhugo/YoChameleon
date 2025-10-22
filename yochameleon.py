@@ -42,7 +42,7 @@ class YoChameleonTrainer:
 		self.identifier = self.config.special_tokens["SKS_TOKEN"]
 		self.latent_tokens_start_index = self.config.special_tokens["LATENT_TOKEN_START"]
 
-		self.prepare_personalized_tokens()
+		self.personalized_tokens, self.personalized_token_ids, self.generation_prompt, self.understanding_prompt = self._prepare_personalized_tokens()
 		self.get_optimizer_and_scheduler(config) # get optimizer and scheduler for pretraining
 		self.setup_logger()
 		self.sks_name = config.sks_name
@@ -61,7 +61,53 @@ class YoChameleonTrainer:
 		processor = ChameleonProcessor.from_pretrained(self.config.model_id)
 		model = ChameleonForConditionalGeneration.from_pretrained(self.config.model_id, device_map="auto", torch_dtype=torch.bfloat16)
 		logger.info(f'Loaded {self.config.model_id}!')
-		return processor, model 
+		return processor, model
+	
+	def _prepare_personalized_tokens(self):
+		"""Return: personalized_tokens, personalized_token_ids, generation_prompt, understanding_prompt"""
+		generation_prompt = ""
+		understanding_prompt = ""
+
+		if self.config.self_prompting:
+			#  Attention: If follow this setting, prompt is: <sks> is <generation><understanding>
+
+			logger.info('\n\n            Self-Prompting is enabled!\n\n')
+			identifier_token_id = self.processor.tokenizer.convert_tokens_to_ids(self.identifier)
+
+			# generation tokens (TODO: check this belong to visual space)
+			#TODO: understand config of soft token here
+			gen_prefix_tokens = [f'<reserved{self.latent_tokens_start_index+i}>' for i in range(self.config.prefix_token)]
+			# understanding tokens (TODO: check if this belong to text space)
+			understand_prefix_tokens = [f'<reserved{self.latent_tokens_start_index+self.config.prefix_token+i}>' for i in range(self.config.prefix_token)]
+			
+			personalized_tokens = [self.identifier]
+			personalized_tokens.extend(gen_prefix_tokens)
+			personalized_tokens.extend(understand_prefix_tokens)
+
+			generation_prompt = "".join(gen_prefix_tokens)
+			understanding_prompt = "".join(understand_prefix_tokens)
+		else:
+			#--- This is train the SAME set of latent tokens for all the tasks
+			# in this setting: prompt is: <sks> is <token>
+			prefix_tokens = [f'<reserved{self.latent_tokens_start_index+i}>' for i in range(self.config.prefix_token)]
+			personalized_tokens = [self.identifier]
+			personalized_tokens.extend(prefix_tokens)
+
+			# --- This is for the negative identifier, which is not used anymore
+			# if self.config.different_identifier:
+			# 	# -1 for the identifier, then -1 for the first neagtive identifier
+			# 	negative_identifier = [f'<reserved{self.latent_tokens_start_index-1-i}>' for i in range(1, self.config.prefix_token)]
+			# 	personalized_tokens.extend(negative_identifier)
+			# 	print(negative_identifier)
+			# 	print(len(negative_identifier))
+		
+		personalized_tokens = personalized_tokens
+		personalized_token_ids = self.processor.tokenizer.convert_tokens_to_ids(personalized_tokens)
+		logger.info(f'Personalized tokens: {personalized_tokens}')
+		logger.info(f'Personalized token ids: {personalized_token_ids}')
+		logger.info(f'There are {len(personalized_tokens)} personalized tokens')
+
+		return personalized_tokens, personalized_token_ids, generation_prompt, understanding_prompt
 
 	def get_personalized_prompt(self):
 		return self.sks_prompt
@@ -78,64 +124,7 @@ class YoChameleonTrainer:
 		else:
 			return None
 
-	def prepare_personalized_tokens(self):
-		if self.config.self_prompting:
-			#@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-			#          
-			#  Attention: If follow this setting, prompt is: <sks> is <generation><understanding>
-			#
-			#@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-
-			logger.info('\n\n            Self-Prompting is enabled!\n\n')
-
-			identifier_token_id = self.processor.tokenizer.convert_tokens_to_ids(self.identifier)
-
-			# generation tokens (TODO: check this belong to visual space)
-			#TODO: understand config of soft token here
-			gen_prefix_tokens = [f'<reserved{self.latent_tokens_start_index+i}>' for i in range(self.config.prefix_token)]
-			# understanding tokens (TODO: check if this belong to text space)
-			understand_prefix_tokens = [f'<reserved{self.latent_tokens_start_index+self.config.prefix_token+i}>' for i in range(self.config.prefix_token)]
-			
-			personalized_tokens = [self.identifier]
-			personalized_tokens.extend(gen_prefix_tokens)
-			personalized_tokens.extend(understand_prefix_tokens)
-
-			self.generation_prompt = "".join(gen_prefix_tokens)
-			self.understanding_prompt = "".join(understand_prefix_tokens)
-
-			self.personalized_tokens = personalized_tokens
-			self.personalized_token_ids = self.processor.tokenizer.convert_tokens_to_ids(personalized_tokens)
-
-			logger.info(f'Personalized tokens: {self.personalized_tokens}')
-			logger.info(f'Personalized token ids: {self.personalized_token_ids}')
-			logger.info(f'There are {len(self.personalized_tokens)} personalized tokens')
-		else:
-			#--- This is train the SAME set of latent tokens for all the tasks
-			# in this setting: prompt is: <sks> is <token>
-			prefix_tokens = [f'<reserved{self.latent_tokens_start_index+i}>' for i in range(self.config.prefix_token)]
-			personalized_tokens = [self.identifier]
-			personalized_tokens.extend(prefix_tokens)
-
-			# --- This is for the negative identifier, which is not used anymore
-			# if self.config.different_identifier:
-			# 	# -1 for the identifier, then -1 for the first neagtive identifier
-			# 	negative_identifier = [f'<reserved{self.latent_tokens_start_index-1-i}>' for i in range(1, self.config.prefix_token)]
-			# 	personalized_tokens.extend(negative_identifier)
-			# 	print(negative_identifier)
-			# 	print(len(negative_identifier))
-
-			self.personalized_tokens = personalized_tokens
-			self.personalized_token_ids = self.processor.tokenizer.convert_tokens_to_ids(personalized_tokens)
-			print(f'Personalized tokens: {self.personalized_tokens}')
-			print(f'Personalized token ids: {self.personalized_token_ids}')
-			print(f'There are {len(self.personalized_tokens)} personalized tokens')
-
 	def setup_logger(self):
-		# This is for tensorboard, which is not used for this project anymore
-		# log_dir = f'./runs/{self.config.exp_name}/{self.config.sks_name}'
-		# if os.path.exists(log_dir):
-		# shutil.rmtree(log_dir)
-		# writer = SummaryWriter(f'./runs/{config.exp_name}/{config.sks_name}')
 		self.save_location = f'{self.config.savedir}/{self.config.exp_name}/{self.config.sks_name}'
 		os.makedirs(self.save_location, exist_ok=True)
 		if not self.config.no_wandb:
@@ -153,38 +142,31 @@ class YoChameleonTrainer:
 			self.wandb = None
 
 	def get_optimizer_and_scheduler(self, config):
-		try:
-			config = GeneralConfig(config)
-		except:
-			config = config # check if config is already a Config object
+		config = GeneralConfig(config)
 		optimizer_config = config.optimizer
 		scheduler_config = config.scheduler
+
 		if self.config.whole_model:
 			trainable_params = self.model.model.parameters()
-			optimizer = torch.optim.AdamW(
+		else:
+			# train embedding weights and lm head only
+			# TODO: document: get_input_embeddings() returns the embedding layer (usually nn.Embedding) object size (Vocab_size x Embedding_dim)
+			# TODO: document: lm_head nn.Linear produce logit for each token
+			trainable_params = [self.model.get_input_embeddings().weight, self.model.lm_head.weight]
+			
+		optimizer = torch.optim.AdamW(
 				trainable_params,
 				lr=float(optimizer_config.lr),
 				betas=tuple(optimizer_config.betas),
 				weight_decay=float(optimizer_config.weight_decay),
 				eps=float(optimizer_config.eps)
 			)
-		else:
-			# train embedding weights and lm only
-			trainable_params = [self.model.get_input_embeddings().weight, self.model.lm_head.weight]
-			optimizer = torch.optim.AdamW(
-				trainable_params,
-				lr=float(optimizer_config.lr),
-				betas=tuple(optimizer_config.betas),
-				weight_decay=float(optimizer_config.weight_decay),
-				eps=float(optimizer_config.eps),
-			)
 		if scheduler_config.type == 'StepLR':
 			scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=scheduler_config.step_size, gamma=scheduler_config.gamma)
 		else:
-			print('Scheduler not implemented yet')
+			logger.info('Scheduler has not setup yet.')
 			scheduler = None
 		self.optimizer, self.scheduler, self.optimizer_config, self.scheduler_config = optimizer, scheduler, optimizer_config, scheduler_config
-		# return optimizer, scheduler, optimizer_config, scheduler_config
 
 	def save_checkpoint(self, iteration, finetune=False):
 		# if type(iteration) == int:
