@@ -13,6 +13,7 @@ from transformers import (ChameleonForConditionalGeneration,
                           ChameleonProcessor, ChameleonVQVAE,
                           ChameleonVQVAEConfig, Emu3Processor)
 from transformers.image_transforms import to_pil_image
+from config.config import GeneralConfig
 
 # END-OF-TURN token: <reserved08706>
 
@@ -165,18 +166,18 @@ class PersonalizedDataset(Dataset):
 class PersonalizedDataset_SelfPrompting(Dataset):
     def __init__(
         self,
-        config,
+        config: GeneralConfig,
         processor: ChameleonProcessor = None,
         personalized_prompt: str = None,
     ):
         self.config = config
         self.processor = processor
 
-        self.sks_token = self.config.special_tokens['SKS_TOKEN']
+        self.sks_token = self.config.special_tokens.SKS_TOKEN
         self.personalized_prompt = personalized_prompt
-        self.END_OF_TURN = self.config.special_tokens['END_OF_TURN']
+        self.END_OF_TURN = self.config.special_tokens.END_OF_TURN
 
-        latent_token_start = self.config.special_tokens['LATENT_TOKEN_START']
+        latent_token_start = self.config.special_tokens.LATENT_TOKEN_START
         num_latent_tokens = self.config.prefix_token
 
         understanding_tokens = [f'<reserved{latent_token_start+num_latent_tokens+i}>' for i in range(self.config.prefix_token)]

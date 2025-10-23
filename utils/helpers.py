@@ -19,6 +19,9 @@ from transformers import (ChameleonForConditionalGeneration,
                           ChameleonVQVAEConfig, Emu3Processor)
 
 from typing import TypeAlias
+from utils.logging import get_logger
+
+logger = get_logger(__name__)
 
 RecognitionDataType: TypeAlias = RecognitionData | RecognitionData_SelfPrompting
 
@@ -28,7 +31,11 @@ def chameleon_trim_answer(long_answer):
     short_answer = re.findall(pattern, long_answer)[0] # trim the first end of turn -- which should be the model response
     return short_answer
     
-def get_dataloader_iter(config, processor, only_positive=False, personalized_prompt=None):
+def get_dataloader_iter(
+        config: GeneralConfig, 
+        processor: ChameleonProcessor, 
+        only_positive: bool=False, 
+        personalized_prompt: str=None):
     if only_positive:
         train_dataset = PersonalizedDataset(
                 json_file=config.json_file,
@@ -41,7 +48,7 @@ def get_dataloader_iter(config, processor, only_positive=False, personalized_pro
             )
     else:
         if config.self_prompting:
-            print('\n\n\n Using PersonalizedDataset_SelfPrompting \n\n\n')
+            logger.info('\n\n\n Using PersonalizedDataset_SelfPrompting \n\n\n')
             train_dataset = PersonalizedDataset_SelfPrompting(
                 config=config,
                 processor=processor,

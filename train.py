@@ -25,27 +25,18 @@ if __name__ == '__main__':
     config_dict = yaml.safe_load(open(args.config, 'r'))
     config = GeneralConfig(**config_dict)
 
-    # Load the universal config only, override sks name with actual sks_name
-    # TODO: check for SKS_NAME in json_file
-    if config.sks_name is not None:
-        config.json_file = [x.replace('SKS_NAME', config.sks_name) for x in config.json_file]
-
     # call training loop
     if config.model_id == ChameleonModelName.LENOY_ANOLE_7B_V01:
         trainer = YoChameleonTrainer(config)
-    # elif config.model_id == 'Emu3-community/Emu3-Gen-hf':
-    #     trainer = YoEmu3Trainer(config)
     else:
         raise ValueError(f"Model ID {config.model_id} is not supported yet~")
 
-    #TODO: dive here
     personalized_prompt = trainer.get_personalized_prompt()
     logger.info(f"Personalized prompt: {personalized_prompt}")
     
-    #TODO: dive here
     train_dataloader = get_dataloader_iter(
-        config,
-        trainer.processor,
+        config=config,
+        processor=trainer.processor,
         personalized_prompt=personalized_prompt
         )
 

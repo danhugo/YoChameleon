@@ -1,7 +1,7 @@
 from pydantic import BaseModel, Field, computed_field
 from typing import Literal
 from config.consts import AllModelEnum, ChameleonModelName
-
+import os
 
 class OptimizerConfig(BaseModel):
     type: str
@@ -70,28 +70,22 @@ class GeneralConfig(BaseModel):
     entity: str
     exp_name: str
     savedir: str
+    no_wandb: bool = Field(description="Turn off log to WanDB for debug")
+
     sks_name: str = Field(description="name of personalized object to overwrite SKS_NAME in json_file")
+    @computed_field
+    @property
+    def json_file(self) -> list[str]:
+        files = ['recognition.json', 'text_conversation.json', '1000.json']
+        return [os.path.join(self.data_root, "train", self.sks_name, "json", f) for f in files]
     
     model_id: AllModelEnum = ChameleonModelName.LENOY_ANOLE_7B_V01
     data_root: str
 
-    no_wandb: bool = Field(description="Turn off log to WanDB for debug")
-
-    json_file: list[str] = Field(examples=[
-        'data/train/SKS_NAME/json/recognition.json',
-        'data/train/SKS_NAME/json/text_conversation.json',
-        'data/train/SKS_NAME/json/1000E.json'
-    ])
-
     prefix_token: int
 
     different_identifier: bool
-    task_disjoin: bool
     self_prompting: bool
-    seperate_tasks: bool = Field(
-        default=False, 
-        description="the model will be trained on all tasks (recognition, gen) with same tokens, or seperate"
-        )
     
     @computed_field
     @property

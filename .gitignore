@@ -17,3 +17,5 @@ scripts/create_data/retrieve
 create_training_data/retrieve_negative/download_random_images.py
 
 *.egg-info
+mini_data
+*.zip
