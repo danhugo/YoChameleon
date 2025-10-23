@@ -7,7 +7,7 @@ import numpy as np
 import torch
 import yaml
 from PIL import Image, ImageOps
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, DataLoader
 from torchvision import datasets, transforms
 from transformers import (ChameleonForConditionalGeneration,
                           ChameleonProcessor, ChameleonVQVAE,
@@ -315,10 +315,10 @@ class RecognitionData(Dataset):
 class RecognitionData_SelfPrompting(Dataset):
     def __init__(
         self,
-        sks_name,
-        placeholder_token="<reserved16200>",
-        image_folder=None,
-        tokenizer_max_length=1500, 
+        sks_name:str,
+        placeholder_token:str="<reserved16200>",
+        image_folder:str=None,
+        tokenizer_max_length:int=1500, 
         processor: ChameleonProcessor = None,
         only_positive: bool = False,
         personalized_prompt: str = None,
@@ -362,6 +362,7 @@ class RecognitionData_SelfPrompting(Dataset):
         else:
             example['labels'] = ['No']
         return example
+    
 
 if __name__ == "__main__":
     #-- This is for debugging purpose

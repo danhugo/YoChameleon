@@ -3,7 +3,7 @@ import glob
 import os 
 import re
 import torch
-
+from torch.utils.data import Dataset, DataLoader
 import sys
 
 from PIL import Image
@@ -13,6 +13,10 @@ from dataset import RecognitionData
 from dataset import RecognitionData_SelfPrompting
 from torchvision import datasets
 from tqdm import tqdm
+from config.config import GeneralConfig
+from transformers import (ChameleonForConditionalGeneration,
+                          ChameleonProcessor, ChameleonVQVAE,
+                          ChameleonVQVAEConfig, Emu3Processor)
 
 def chameleon_trim_answer(long_answer):
     end_of_turn = '<reserved08706>'
@@ -55,32 +59,30 @@ def get_dataloader_iter(config, processor, only_positive=False, personalized_pro
     # dataloader_iter = cycle(train_dataloader)
     return train_dataloader
 
-def get_eval_dataloader(config, processor, image_folder, personalized_prompt=None, understanding_prompt=None):
+def get_eval_data(
+        config: GeneralConfig, 
+        processor: ChameleonProcessor, 
+        image_folder: str, 
+        personalized_prompt: str=None, 
+        understanding_prompt: str | None=None) -> RecognitionData_SelfPrompting | RecognitionData:
+    
+    data_init_dict = {
+        "sks_name": config.sks_name,
+        "image_folder": image_folder,
+        "placeholder_token": config.special_tokens.SKS_TOKEN,
+        "tokenizer_max_length": config.tokenizer_max_length,
+        "processor": processor,
+        "personalized_prompt": personalized_prompt,
+    }
+
     if config.self_prompting:
-        eval_dataset = RecognitionData_SelfPrompting(
-            sks_name=config.sks_name,
-            image_folder=image_folder,
-            placeholder_token=config.special_tokens["SKS_TOKEN"],
-            tokenizer_max_length=config.tokenizer_max_length,
-            processor=processor,
-            personalized_prompt=personalized_prompt,
-            understanding_prompt=understanding_prompt,
-        )
-        eval_dataloader = torch.utils.data.DataLoader(
-            eval_dataset, batch_size=config.batch_size, shuffle=False, num_workers=1,
-        )
+        data_init_dict["understanding_prompt"] = understanding_prompt
+        eval_dataset = RecognitionData_SelfPrompting(**data_init_dict)
+        eval_dataloader = DataLoader(eval_dataset, batch_size=config.batch_size, shuffle=False, num_workers=1,)
     else:
-        eval_dataset = RecognitionData(
-            sks_name=config.sks_name,
-            image_folder=image_folder,
-            placeholder_token=config.special_tokens["SKS_TOKEN"],
-            tokenizer_max_length=config.tokenizer_max_length,
-            processor=processor,
-            personalized_prompt=personalized_prompt,
-        )
-        eval_dataloader = torch.utils.data.DataLoader(
-            eval_dataset, batch_size=config.batch_size, shuffle=False, num_workers=1,
-        )
+        eval_dataset = RecognitionData(**data_init_dict)
+        eval_dataloader = DataLoader(eval_dataset, batch_size=config.batch_size, shuffle=False, num_workers=1,)
+    
     return eval_dataset
 
 def collate_fn(batch):

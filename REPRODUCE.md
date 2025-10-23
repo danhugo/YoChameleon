@@ -57,4 +57,7 @@ commit: 6b08ce4f67fef36b2afb3bdfd571c6dabfdd3d6b
   - current: only train_epoch remains 
 last commit: 6aef5d1
 
-- update: training_disjoin is no longer supported
+- update: 
+  - training_disjoin is no longer supported, just for exploring (from author)
+  - train: was used for training with iteration. Is removed now
+  - same with finetune, finetune_epoch: just for exploration
