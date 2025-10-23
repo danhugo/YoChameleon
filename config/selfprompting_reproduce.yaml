@@ -1,0 +1,73 @@
+project_name: "YoChameleon-Reproduce"
+entity: "hice"
+
+model_id: 'leloy/Anole-7b-v0.1-hf'
+data_root: '/root/workspace/YoChameleon/mini_data'
+
+no_wandb: true
+sks_name: 'bo'
+prefix_token: 16 # Remember to change this
+exp_name: 'reproduce_231025' # Remember to change this
+different_identifier: False # No longer used
+self_prompting: True
+
+iteration: 15 # Currently iteration = epoch
+epoch: 15 # Currently it will use epochs for training
+save_every: 2 # save every epoch
+
+batch_size: 1
+savedir: '/root/workspace/YoChameleon/exps'
+whole_model: False
+tokenizer_max_length: 1500
+eval_visualization: True
+
+optimizer:
+  type: 'AdamW'
+  lr: 0.001
+  betas: [0.9, 0.999]
+  weight_decay: 1e-4
+  eps: 1e-6
+  grad_clip: -1 # only use if grad_clip >0
+
+scheduler:
+  # type: 'StepLR'
+  type: 'No' # Currently only StepLR is implemented
+  step_size: 10
+  gamma: 0.05
+
+special_tokens:
+  START_OF_IMAGE_INDEX: 8197
+  END_OF_IMAGE_INDEX: 8196
+  END_OF_TURN: 8710
+  PAD_INDEX: 1
+  SKS_TOKEN: '<reserved16200>'
+  LATENT_TOKEN_START: 16201
+
+resume: 
+  resume: 'No'
+  resume_iteration: 15
+  savedir: '/root/workspace/YoChameleon/exps'
+  exp_name: '1000disjoin'
+
+# --- EVAL CONFIG --- 
+eval:
+  clip_sim: True
+  number_fake_images: 1
+  recognition: True
+  recognition_path_train: '/root/workspace/YoChameleon/mini_data/train'
+  recognition_path_test: '/root/workspace/YoChameleon/mini_data/test'
+  ############
+  #
+  # NOT YET IMPLEMETED
+  #
+  ##########
+  vqa: True
+  vqa_path_json: './baselines/yollava-visual-qa.json'
+
+# --- TEST CONFIG --- 
+test:
+  prompt: "A photo of <reserved16200>."
+  iteration: 200 # this will not affect the train code -- generated images are always with lastest checkpoints
+  save_dir: '/sensei-fs/users/thaon/code/generated_images/'
+  batch_size: 16
+  num_images: 100

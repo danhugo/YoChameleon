@@ -58,8 +58,8 @@ class YoChameleonTrainer:
 
 	def _get_model(self) -> tuple[ChameleonProcessor, ChameleonForConditionalGeneration]:
 		"""Return: ChameleonProcessor, ChameleonModel"""
-		processor = ChameleonProcessor.from_pretrained(self.config.model_id)
-		model = ChameleonForConditionalGeneration.from_pretrained(self.config.model_id, device_map="auto", torch_dtype=torch.bfloat16)
+		processor = ChameleonProcessor.from_pretrained(self.config.model_id.value)
+		model = ChameleonForConditionalGeneration.from_pretrained(self.config.model_id.value, device_map="auto", torch_dtype=torch.bfloat16)
 		logger.info(f'Loaded {self.config.model_id}!')
 		return processor, model
 	

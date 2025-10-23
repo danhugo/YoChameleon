@@ -369,7 +369,7 @@ if __name__ == "__main__":
     #-- This is for debugging purpose
     config_file = './config/emu3-gen.yaml'
     config_dict = yaml.safe_load(open(config_file, 'r'))
-    config = Config(config_dict)
+    config = GeneralConfig(config_dict)
     if config.model_id == 'leloy/Anole-7b-v0.1-hf':
         processor = ChameleonProcessor.from_pretrained(config.model_id)
     elif config.model_id == 'Emu3-community/Emu3-Gen-hf':

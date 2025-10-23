@@ -7,7 +7,7 @@ class OptimizerConfig(BaseModel):
     type: str
     lr: float
     betas: list[float]
-    weight_decay = float
+    weight_decay: float
     eps: float
     grad_clip: float
 
@@ -19,12 +19,12 @@ class SchedulerConfig(BaseModel):
 
 
 class ResumeConfig(BaseModel):
-    resume: Literal["yes", "no"]
+    resume: Literal["Yes", "No"] = "No"
     resume_iteration: int
     savedir: str
     exp_name: str
-    gen_exp_name: str | None
-    understand_exp_name: str | None
+    gen_exp_name: str | None = None
+    understand_exp_name: str | None = None
 
 
 class FineTuneConfig(BaseModel):
@@ -48,7 +48,7 @@ class EvalConfig(BaseModel):
 
 class TestConfig(BaseModel):
     prompt: str
-    token_len: int | None
+    token_len: int | None = None
     iteration: int
     save_dir: str
     batch_size: int
@@ -70,7 +70,7 @@ class GeneralConfig(BaseModel):
     entity: str
     exp_name: str
     savedir: str
-    no_wandb: bool = Field(description="Turn off log to WanDB for debug")
+    no_wandb: bool = Field(description="Turn off log to WanDB for debug", default=True)
 
     sks_name: str = Field(description="name of personalized object to overwrite SKS_NAME in json_file")
     @computed_field
@@ -100,14 +100,14 @@ class GeneralConfig(BaseModel):
 
     whole_model: bool
     tokenizer_max_length: int
-    eval_visualization: bool | None
+    eval_visualization: bool | None = None
 
     optimizer: OptimizerConfig
     scheduler: SchedulerConfig
 
     special_tokens: SpecialTokenConfig
-    resume: ResumeConfig | None
-    finetune: FineTuneConfig | None
+    resume: ResumeConfig | None = None
+    finetune: FineTuneConfig | None = None
     eval: EvalConfig
     test: TestConfig
 
