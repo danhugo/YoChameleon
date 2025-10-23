@@ -18,6 +18,10 @@ from transformers import (ChameleonForConditionalGeneration,
                           ChameleonProcessor, ChameleonVQVAE,
                           ChameleonVQVAEConfig, Emu3Processor)
 
+from typing import TypeAlias
+
+RecognitionDataType: TypeAlias = RecognitionData | RecognitionData_SelfPrompting
+
 def chameleon_trim_answer(long_answer):
     end_of_turn = '<reserved08706>'
     pattern = r"<reserved08706>(.*)"
@@ -64,7 +68,7 @@ def get_eval_data(
         processor: ChameleonProcessor, 
         image_folder: str, 
         personalized_prompt: str=None, 
-        understanding_prompt: str | None=None) -> RecognitionData_SelfPrompting | RecognitionData:
+        understanding_prompt: str | None=None) -> tuple[RecognitionDataType, DataLoader]:
     
     data_init_dict = {
         "sks_name": config.sks_name,
@@ -83,7 +87,7 @@ def get_eval_data(
         eval_dataset = RecognitionData(**data_init_dict)
         eval_dataloader = DataLoader(eval_dataset, batch_size=config.batch_size, shuffle=False, num_workers=1,)
     
-    return eval_dataset
+    return eval_dataset, eval_dataloader
 
 def collate_fn(batch):
     inputs = [item['input'] for item in batch]

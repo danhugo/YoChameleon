@@ -15,8 +15,7 @@ from utils.helpers import chameleon_trim_answer
 from config.config import GeneralConfig
 from utils.logging import get_logger
 from torch.utils.data import DataLoader
-from dataset import RecognitionData
-from dataset import RecognitionData_SelfPrompting
+from typing import Literal
 
 logger = get_logger(__name__)
 
@@ -193,7 +192,7 @@ class YoChameleonTrainer:
 			torch.save(self.model.lm_head.weight.data[self.personalized_token_ids], save_path_lmhead)
 			logger.info('Saved lm_head at: ', save_path_lmhead)
 
-	def load_prefix(self, resume_token_ids):
+	def _load_prefix(self, resume_token_ids):
 		lm_head_path = os.path.join(self.config.resume.savedir, self.config.resume.exp_name, self.config.sks_name, f"{self.config.resume.resume_iteration}-lmhead.pt")
 		embedding_path = os.path.join(self.config.resume.savedir, self.config.resume.exp_name, self.config.sks_name, f"{self.config.resume.resume_iteration}-token.pt")
 		# Load language model head (only section of personalized token in lm_head were stored)
@@ -209,27 +208,22 @@ class YoChameleonTrainer:
 		logger.info(f'\n\n\n Resume tokens ids: {resume_token_ids} \n From: {self.config.resume.exp_name} at epochs {self.config.resume.resume_iteration}\n\n\n')
 
 	def resume_training(self):
-		try:
-			if self.config.resume.resume:
-				logger.info('Resuming training... from iteration:', self.config.resume.resume_iteration)
-				# embedding_path = f'{config_resume.savedir}/{config_resume.exp_name}/{self.config.sks_name}/{config_resume.resume_iteration}-token.pt'
-				try:
-					# no task disjoin -- just load from the saved personalized tokens
-						self.load_prefix(self.personalized_token_ids)
-				except Exception as e:
-					logger.error(e)
-					model_path = os.path.join(self.config.resume.savedir, self.config.resume.exp_name, self.config.sks_name, str(self.config.resume.resume_iteration) + '-model.pt')
-					state_dict = torch.load(model_path)
-					self.model.model.load_state_dict(state_dict)
-					logger.info(f'\n\n\n           Resumed model from {model_path} \n\n\n')
-				self.iteration = self.config.resume.resume_iteration
-			else:
-				logger.info('Starting training from scratch...')
-		except Exception as e:
-			logger.info(e)
-			logger.info('\n\n\n       The config said I should load from the resume, but I could not find the resume config')
-			logger.info('       Also, check the above error... \n\n\n')
-			exit()
+		if self.config.resume.resume:
+			logger.info('Resuming training... from iteration:', self.config.resume.resume_iteration)
+			# embedding_path = f'{config_resume.savedir}/{config_resume.exp_name}/{self.config.sks_name}/{config_resume.resume_iteration}-token.pt'
+			try:
+				# no task disjoin -- just load from the saved personalized tokens
+					self._load_prefix(self.personalized_token_ids)
+			except Exception as e:
+				logger.error("Fail to load lm_head and embedding. Loading whole model instead ...: %s", str(e))
+				model_path = os.path.join(self.config.resume.savedir, self.config.resume.exp_name, self.config.sks_name, str(self.config.resume.resume_iteration) + '-model.pt')
+				state_dict = torch.load(model_path)
+				self.model.model.load_state_dict(state_dict)
+				logger.info(f'\n\n\n           Resumed model from {model_path} \n\n\n')
+			self.iteration = self.config.resume.resume_iteration
+		else:
+			logger.info('Starting training from scratch...')
+
 
 	def configure_model(self):
 		if self.config.whole_model:
@@ -247,35 +241,40 @@ class YoChameleonTrainer:
 	def train(
 			self, 
 			dataloader: DataLoader, 
-			recognition_data_loader_train: RecognitionData | RecognitionData_SelfPrompting | None = None, 
-			recognition_data_loader_test: RecognitionData | RecognitionData_SelfPrompting | None = None) -> None:
+			recognition_data_loader_train: DataLoader | None = None, 
+			recognition_data_loader_test: DataLoader | None = None
+			) -> None:
+		#TODO: need to check again type(recognition_data_loader_train) is Dataset or Dataloader
 		if not self.config.no_wandb:
 			self.wandb.log({"Dataset/Train_dataset_length": len(dataloader.dataset)})
 			self.mean_clip_at_best = 0.0
 			self.weighted_acc_at_best = 0.0
 		if self.config.eval.clip_sim:
-			real_images_path = [x for x in sorted(recognition_data_loader_train.image_paths) if self.sks_name in x]
+			real_images_path = [x for x in sorted(recognition_data_loader_train.dataset.image_paths) if self.sks_name in x]
 			real_images = [Image.open(x).convert("RGB") for x in real_images_path]
-		for iteration in tqdm(range(self.config.iteration+1)):
+		for iteration in tqdm(range(self.config.iteration+1), desc="Epoch"):
 			# Save model checkpoints
+			# eval
 			eval_list = []
 			if iteration % self.config.save_every == 0:
 				self._save_checkpoint(iteration)
 				if self.config.eval_visualization:
 					visual_dict = self.visualize_evaluation()
 					eval_list.append(visual_dict)
-				if self.config.eval['recognition']:
+				if self.config.eval.recognition:
 					train_recog = self.eval_recognition(recognition_data_loader_train, split='train')
 					test_recog = self.eval_recognition(recognition_data_loader_test, split='test')
 					eval_list.append(train_recog)
 					eval_list.append(test_recog)
-				if self.config.eval['clip_sim']:
+				if self.config.eval.clip_sim:
 					clip_sim = self.eval_clip_similarity(real_images, number_fake_images=self.config.eval['number_fake_images'])
 					eval_list.append(clip_sim)
-				if self.config.eval['recognition']:
+				
+				if self.config.eval.clip_sim:
 					avg_score = clip_sim['Metrics/CLIP'] + train_recog['Metrics/train_weighted_accuracy']
 				else:
 					avg_score = clip_sim['Metrics/CLIP']
+				
 				if self.avg_metric <= avg_score:
 					self.avg_metric = avg_score
 					self._save_checkpoint('best')
@@ -294,6 +293,8 @@ class YoChameleonTrainer:
 					for item in eval_list:
 						log_dict.update(item)
 					self.wandb.log(log_dict)
+			
+			# train
 			for batch in tqdm(dataloader):
 				self.optimizer.zero_grad()
 				batch['pixel_values'] = batch['pixel_values'].to(self.model.dtype)
@@ -361,7 +362,7 @@ class YoChameleonTrainer:
 			index, image = save_generated_images(pixel_values, prompt_short, save_path, self.config.sks_name, index)
 	
 	@torch.no_grad()
-	def eval_recognition(self, recognition_data_loader, split='test'):
+	def eval_recognition(self, recognition_data_loader: DataLoader, split:Literal['test', 'train'] = 'test'):
 		logger.info('\n\n                Recognition Evaluation \n\n')
 		ground_truth = []
 		predictions = []
@@ -440,12 +441,16 @@ class YoChameleonTrainer:
 
 	@torch.no_grad()
 	def visualize_evaluation(self):
+		"""Visualize image generation and log text generation"""
 		logger.info('Generate evaluation images...')
 		if self.config.self_prompting:
+			# <sks> is <gen><und>. A photo of <sks>. <reserved08706><gen>
+			# <reserved08706> separates instruction (context) from response (output)
 			prompt = f'{self.sks_prompt} A photo of {self.identifier}.<reserved08706>{self.generation_prompt}'
 		else:
+			# <sks> is <tok>. A photo of <sks>.
 			prompt = self.sks_prompt + f' A photo of {self.identifier}.'
-		logger.info(prompt)
+		logger.info(f"prompt: {prompt}")
 		inputs = self.processor(prompt, return_tensors="pt").to(self.model.device)
 		generate_ids = self.model.generate(**inputs, multimodal_generation_mode="image-only", max_new_tokens=1026, do_sample=True)
 		response_ids = generate_ids[:, inputs["input_ids"].shape[-1]:]
@@ -460,7 +465,7 @@ class YoChameleonTrainer:
 		result_with_special_tokens = self.processor.decode(output[0], skip_special_tokens=False)
 		answer = chameleon_trim_answer(result_with_special_tokens)
 		escaped_string = html.escape(result_with_special_tokens)
-		logger.info(answer)
+		logger.info(f"asnwer: {answer}")
 		visual_dict = {
 			"Image": wandb.Image(image),
 			"Text/Describe": wandb.Html(f'<p>{escaped_string}</p>')

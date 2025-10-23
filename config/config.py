@@ -42,7 +42,7 @@ class EvalConfig(BaseModel):
     recognition: bool
     recognition_path_train: str
     recognition_path_test: str
-    vpg: bool
+    vqa: bool
     vqa_path_json: str
 
 
@@ -106,14 +106,14 @@ class GeneralConfig(BaseModel):
 
     whole_model: bool
     tokenizer_max_length: int
-    eval_visualization: bool
+    eval_visualization: bool | None
 
     optimizer: OptimizerConfig
     scheduler: SchedulerConfig
 
     special_tokens: SpecialTokenConfig
-    resume: ResumeConfig
-    finetune: FineTuneConfig
+    resume: ResumeConfig | None
+    finetune: FineTuneConfig | None
     eval: EvalConfig
     test: TestConfig
 

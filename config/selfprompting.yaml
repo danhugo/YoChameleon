@@ -1,4 +1,4 @@
-project_name: "YoChameleon-04nov2024"
+project_name: "YoChameleon-Exploration"
 entity: "thaoshibe-university-of-wisconsin-madison"
 
 model_id: 'leloy/Anole-7b-v0.1-hf'
@@ -11,7 +11,7 @@ json_file: # Remember to change this
 
 sks_name: 'thao'
 prefix_token: 16 # Remember to change this
-exp_name: 'selfprompt' # Remember to change this
+exp_name: 'api' # Remember to change this
 different_identifier: False
 task_disjoin: False
 self_prompting: True
@@ -55,7 +55,6 @@ resume:
   resume_iteration: 15
   savedir: '/sensei-fs/users/thaon/ckpt-1103/'
   exp_name: '1000disjoin'
-  gen_exp_name: 'gen_exp' #TODO: checkout this part
 
 finetune:
   finetune: False

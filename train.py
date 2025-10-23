@@ -51,19 +51,19 @@ if __name__ == '__main__':
 
     trainer.resume_training()
     trainer.configure_model() # this step will set up optimization
-    #TODO: dive here
+
     if config.self_prompting:
         understanding_prompt = trainer.get_understanding_prompt()
     else:
         understanding_prompt = None
-    recognition_dataloader_train = get_eval_data(
+    _, recognition_data_train = get_eval_data(
         config,
         trainer.processor,
         image_folder=config.eval.recognition_path_train,
         personalized_prompt=personalized_prompt,
         understanding_prompt=understanding_prompt
     )
-    recognition_dataloader_test = get_eval_data(
+    _, recognition_data_test = get_eval_data(
         config,
         trainer.processor,
         image_folder=config.eval.recognition_path_test,
@@ -75,8 +75,8 @@ if __name__ == '__main__':
 
         trainer.train(
             train_dataloader,
-            recognition_dataloader_train,
-            recognition_dataloader_test
+            recognition_data_train,
+            recognition_data_test
             )
     else:
         raise ValueError("C'mon you need to train at least one epoch.")
