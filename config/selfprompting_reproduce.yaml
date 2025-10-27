@@ -4,11 +4,10 @@ entity: "hice"
 model_id: 'leloy/Anole-7b-v0.1-hf'
 data_root: '/root/workspace/YoChameleon/mini_data'
 
-no_wandb: true
+no_wandb: False
 sks_name: 'bo'
-prefix_token: 16 # Remember to change this
-exp_name: 'reproduce_231025' # Remember to change this
-different_identifier: False # No longer used
+prefix_token: 16
+exp_name: 'reproduce_231025'
 self_prompting: True
 
 iteration: 15 # Currently iteration = epoch
@@ -44,10 +43,10 @@ special_tokens:
   LATENT_TOKEN_START: 16201
 
 resume: 
-  resume: 'No'
+  resume: False
   resume_iteration: 15
   savedir: '/root/workspace/YoChameleon/exps'
-  exp_name: '1000disjoin'
+  exp_name: 'resume_exp_name'
 
 # --- EVAL CONFIG --- 
 eval:

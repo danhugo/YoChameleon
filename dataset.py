@@ -308,9 +308,9 @@ class RecognitionData(Dataset):
         }
 
         if f'/{self.sks_name}/' in image_path:
-            example['labels'] = ['Yes']
+            example['labels'] = 'Yes'
         else:
-            example['labels'] = ['No']
+            example['labels'] = 'No'
         return example
 
 class RecognitionData_SelfPrompting(Dataset):
@@ -359,9 +359,9 @@ class RecognitionData_SelfPrompting(Dataset):
         }
 
         if f'/{self.sks_name}/' in image_path:
-            example['labels'] = ['Yes']
+            example['labels'] = 'Yes'
         else:
-            example['labels'] = ['No']
+            example['labels'] = 'No'
         return example
     
 

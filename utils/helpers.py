@@ -40,9 +40,9 @@ def get_dataloader_iter(
         train_dataset = PersonalizedDataset(
                 json_file=config.json_file,
                 processor=processor,
-                placeholder_token=config.special_tokens["SKS_TOKEN"],
+                placeholder_token=config.special_tokens.SKS_TOKEN,
                 tokenizer_max_length=config.tokenizer_max_length,
-                END_OF_TURN=config.special_tokens["END_OF_TURN"],
+                END_OF_TURN=config.special_tokens.END_OF_TURN,
                 only_positive=True,
                 personalized_prompt=personalized_prompt,
             )
@@ -58,13 +58,13 @@ def get_dataloader_iter(
             train_dataset = PersonalizedDataset(
                     json_file=config.json_file,
                     processor=processor,
-                    placeholder_token=config.special_tokens["SKS_TOKEN"],
+                    placeholder_token=config.special_tokens.SKS_TOKEN,
                     tokenizer_max_length=config.tokenizer_max_length,
-                    END_OF_TURN=config.special_tokens["END_OF_TURN"],
+                    END_OF_TURN=config.special_tokens.END_OF_TURN,
                     personalized_prompt=personalized_prompt,
                     model_id=config.model_id
                 )
-    train_dataloader = torch.utils.data.DataLoader(
+    train_dataloader = DataLoader(
         train_dataset, batch_size=config.batch_size, shuffle=True, num_workers=1,
     )
     # dataloader_iter = cycle(train_dataloader)
@@ -89,10 +89,10 @@ def get_eval_data(
     if config.self_prompting:
         data_init_dict["understanding_prompt"] = understanding_prompt
         eval_dataset = RecognitionData_SelfPrompting(**data_init_dict)
-        eval_dataloader = DataLoader(eval_dataset, batch_size=config.batch_size, shuffle=False, num_workers=1,)
+        eval_dataloader = DataLoader(eval_dataset, batch_size=1, shuffle=False, num_workers=1,)
     else:
         eval_dataset = RecognitionData(**data_init_dict)
-        eval_dataloader = DataLoader(eval_dataset, batch_size=config.batch_size, shuffle=False, num_workers=1,)
+        eval_dataloader = DataLoader(eval_dataset, batch_size=1, shuffle=False, num_workers=1,)
     
     return eval_dataset, eval_dataloader
 

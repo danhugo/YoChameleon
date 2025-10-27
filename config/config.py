@@ -19,7 +19,7 @@ class SchedulerConfig(BaseModel):
 
 
 class ResumeConfig(BaseModel):
-    resume: Literal["Yes", "No"] = "No"
+    resume: bool = False
     resume_iteration: int
     savedir: str
     exp_name: str
@@ -84,7 +84,6 @@ class GeneralConfig(BaseModel):
 
     prefix_token: int
 
-    different_identifier: bool
     self_prompting: bool
     
     @computed_field

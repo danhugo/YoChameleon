@@ -39,8 +39,8 @@ class YoChameleonTrainer:
 		self.config = config
 		self.processor, self.model = self._get_model()
 		
-		self.identifier = self.config.special_tokens["SKS_TOKEN"]
-		self.latent_tokens_start_index = self.config.special_tokens["LATENT_TOKEN_START"]
+		self.identifier = self.config.special_tokens.SKS_TOKEN
+		self.latent_tokens_start_index = self.config.special_tokens.LATENT_TOKEN_START
 
 		self.personalized_tokens, self.personalized_token_ids, self.generation_prompt, self.understanding_prompt = self._prepare_personalized_tokens()
 		self.get_optimizer_and_scheduler(config) # get optimizer and scheduler for pretraining
@@ -60,6 +60,7 @@ class YoChameleonTrainer:
 		"""Return: ChameleonProcessor, ChameleonModel"""
 		processor = ChameleonProcessor.from_pretrained(self.config.model_id.value)
 		model = ChameleonForConditionalGeneration.from_pretrained(self.config.model_id.value, device_map="auto", torch_dtype=torch.bfloat16)
+		model.generation_config.pad_token_id = processor.tokenizer.pad_token_id
 		logger.info(f'Loaded {self.config.model_id}!')
 		return processor, model
 	
@@ -72,10 +73,7 @@ class YoChameleonTrainer:
 			#  Attention: If follow this setting, prompt is: <sks> is <generation><understanding>
 
 			logger.info('\n\n            Self-Prompting is enabled!\n\n')
-			identifier_token_id = self.processor.tokenizer.convert_tokens_to_ids(self.identifier)
 
-			# generation tokens (TODO: check this belong to visual space)
-			#TODO: understand config of soft token here
 			gen_prefix_tokens = [f'<reserved{self.latent_tokens_start_index+i}>' for i in range(self.config.prefix_token)]
 			# understanding tokens (TODO: check if this belong to text space)
 			understand_prefix_tokens = [f'<reserved{self.latent_tokens_start_index+self.config.prefix_token+i}>' for i in range(self.config.prefix_token)]
@@ -180,17 +178,17 @@ class YoChameleonTrainer:
 		save_path_lmhead = os.path.join(self.config.save_location, f'{iteration}-lmhead{tail}.pt')
 		
 		torch.save(self.model.get_input_embeddings().weight.data[self.personalized_token_ids], save_path_token)
-		logger.info('Saved token embeddings at: ', save_path_token)
+		logger.info('Saved token embeddings at: %s', save_path_token)
 
 		if self.config.whole_model:
 			save_path_model = os.path.join(self.config.save_location, f'{iteration}-model.pt')
 			torch.save(self.model.model.state_dict(), save_path_model)
-			logger.info('Saved whole model at: ', save_path_model)
+			logger.info('Saved whole model at: %s', save_path_model)
 		else:
 			#TODO: document: lm_head.weight.data size (vocab_size, hidden_dim)
 			#TODO: document: only save lm_head of soft token
 			torch.save(self.model.lm_head.weight.data[self.personalized_token_ids], save_path_lmhead)
-			logger.info('Saved lm_head at: ', save_path_lmhead)
+			logger.info('Saved lm_head at: %s', save_path_lmhead)
 
 	def _load_prefix(self, resume_token_ids):
 		lm_head_path = os.path.join(self.config.resume.savedir, self.config.resume.exp_name, self.config.sks_name, f"{self.config.resume.resume_iteration}-lmhead.pt")
@@ -209,7 +207,7 @@ class YoChameleonTrainer:
 
 	def resume_training(self):
 		if self.config.resume.resume:
-			logger.info('Resuming training... from iteration:', self.config.resume.resume_iteration)
+			logger.info('Resuming training... from iteration: %s', self.config.resume.resume_iteration)
 			# embedding_path = f'{config_resume.savedir}/{config_resume.exp_name}/{self.config.sks_name}/{config_resume.resume_iteration}-token.pt'
 			try:
 				# no task disjoin -- just load from the saved personalized tokens
@@ -267,7 +265,7 @@ class YoChameleonTrainer:
 					eval_list.append(train_recog)
 					eval_list.append(test_recog)
 				if self.config.eval.clip_sim:
-					clip_sim = self.eval_clip_similarity(real_images, number_fake_images=self.config.eval['number_fake_images'])
+					clip_sim = self.eval_clip_similarity(real_images, number_fake_images=self.config.eval.number_fake_images)
 					eval_list.append(clip_sim)
 				
 				if self.config.eval.clip_sim:
@@ -279,7 +277,7 @@ class YoChameleonTrainer:
 					self.avg_metric = avg_score
 					self._save_checkpoint('best')
 					self.mean_clip_at_best = clip_sim['Metrics/CLIP']
-					if self.config.eval['recognition']:
+					if self.config.eval.recognition:
 						self.weighted_acc_at_best = train_recog['Metrics/train_weighted_accuracy']
 
 				if not self.config.no_wandb:
@@ -297,7 +295,8 @@ class YoChameleonTrainer:
 			# train
 			for batch in tqdm(dataloader):
 				self.optimizer.zero_grad()
-				batch['pixel_values'] = batch['pixel_values'].to(self.model.dtype)
+				batch = {k: v.to(device=self.model.device) for k, v in batch.items()}
+				batch['pixel_values'] = batch['pixel_values'].to(dtype=self.model.dtype)
 
 				# Process labels with image tokens
 				for i, item in enumerate(batch['labels']):
@@ -313,7 +312,6 @@ class YoChameleonTrainer:
 						image_tokens = self.model.model.get_image_tokens(pixel_values=batch['pixel_values'][None, i])[0]
 						batch['input_ids'][i, soi_index:eot_index] = image_tokens
 						# logger.info('image tokens added to input_ids')
-				batch = {k: v.to(self.model.device) for k, v in batch.items()}
 
 				# Forward pass
 				output = self.model(
@@ -363,7 +361,7 @@ class YoChameleonTrainer:
 	
 	@torch.no_grad()
 	def eval_recognition(self, recognition_data_loader: DataLoader, split:Literal['test', 'train'] = 'test'):
-		logger.info('\n\n                Recognition Evaluation \n\n')
+		logger.info('\n\n           Recognition Evaluation          \n\n')
 		ground_truth = []
 		predictions = []
 
@@ -384,7 +382,7 @@ class YoChameleonTrainer:
 			else:
 				predictions.append(answer)
 			ground_truth.extend(batch['labels'])
-
+		
 		positive_indices = [i for i, x in enumerate(ground_truth) if x == 'Yes']
 		negative_indices = [i for i, x in enumerate(ground_truth) if x == 'No']
 
@@ -393,6 +391,7 @@ class YoChameleonTrainer:
 		gt_positive = [ground_truth[i] for i in positive_indices]
 		gt_negative = [ground_truth[i] for i in negative_indices]
 
+		logger.warning("\nground truth: %s \n predictions: %s\n", ground_truth, predictions)
 		accuracy = sum([1 for i, j in zip(ground_truth, predictions) if i == j]) / len(ground_truth)
 		positive_accuracy = sum([1 for i, j in zip(gt_positive, predict_positive) if i == j]) / len(gt_positive)
 		negative_accuracy = sum([1 for i, j in zip(gt_negative, predict_negative) if i == j]) / len(gt_negative)
@@ -416,12 +415,12 @@ class YoChameleonTrainer:
 
 	@torch.no_grad()
 	def eval_clip_similarity(self, real_images, number_fake_images=10):
-		logger.info('\n\n                CLIP Similarity Evaluation \n\n')
+		logger.info('\n\n        CLIP Similarity Evaluation         \n\n')
 		if self.config.self_prompting:
 			prompt = f'{self.sks_prompt} A photo of {self.identifier}.<reserved08706>{self.generation_prompt}'
 		else:
 			prompt = self.sks_prompt + f' A photo of {self.identifier}.<reserved08706>'
-		inputs = self.processor(prompt, return_tensors="pt").to(self.model.device)
+		inputs = self.processor(text=prompt, return_tensors="pt").to(self.model.device)
 		fake_images = []
 		for index in tqdm(range(number_fake_images)):
 			generate_ids = self.model.generate(**inputs, multimodal_generation_mode="image-only", max_new_tokens=1026, do_sample=True)
@@ -442,7 +441,7 @@ class YoChameleonTrainer:
 	@torch.no_grad()
 	def visualize_evaluation(self):
 		"""Visualize image generation and log text generation"""
-		logger.info('Generate evaluation images...')
+		logger.info('\n\n\n         Visualization Evaluation         \n\n\n')
 		if self.config.self_prompting:
 			# <sks> is <gen><und>. A photo of <sks>. <reserved08706><gen>
 			# <reserved08706> separates instruction (context) from response (output)
@@ -450,8 +449,8 @@ class YoChameleonTrainer:
 		else:
 			# <sks> is <tok>. A photo of <sks>.
 			prompt = self.sks_prompt + f' A photo of {self.identifier}.'
-		logger.info(f"prompt: {prompt}")
-		inputs = self.processor(prompt, return_tensors="pt").to(self.model.device)
+		logger.info(f"evaluation generation prompt: {prompt}")
+		inputs = self.processor(text=prompt, return_tensors="pt").to(self.model.device)
 		generate_ids = self.model.generate(**inputs, multimodal_generation_mode="image-only", max_new_tokens=1026, do_sample=True)
 		response_ids = generate_ids[:, inputs["input_ids"].shape[-1]:]
 		pixel_values = self.model.decode_image_tokens(response_ids[:, 1:-1])
@@ -460,7 +459,7 @@ class YoChameleonTrainer:
 
 		logger.info('Generate the text response...')
 		prompt = self.sks_prompt + f' Can you describe {self.identifier} in details?'
-		inputs = self.processor(prompt, return_tensors="pt").to(self.model.device)
+		inputs = self.processor(text=prompt, return_tensors="pt").to(self.model.device)
 		output = self.model.generate(**inputs, max_new_tokens=200)
 		result_with_special_tokens = self.processor.decode(output[0], skip_special_tokens=False)
 		answer = chameleon_trim_answer(result_with_special_tokens)

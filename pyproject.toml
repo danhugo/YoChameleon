@@ -28,6 +28,7 @@ dependencies = [
     "pydantic-settings>=2.0.3",
     "tokenizers==0.20.1",
     "accelerate>=0.20.3",
+    "colorlog>=6.10.1",
 ]
 
 [tool.uv.sources]
