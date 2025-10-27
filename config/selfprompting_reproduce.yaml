@@ -1,5 +1,5 @@
 project_name: "YoChameleon-Reproduce"
-entity: "hice"
+entity: "hicehehe"
 
 model_id: 'leloy/Anole-7b-v0.1-hf'
 data_root: '/root/workspace/YoChameleon/mini_data'
@@ -7,7 +7,7 @@ data_root: '/root/workspace/YoChameleon/mini_data'
 no_wandb: False
 sks_name: 'bo'
 prefix_token: 16
-exp_name: 'reproduce_231025'
+exp_name: 'run_271025'
 self_prompting: True
 
 iteration: 15 # Currently iteration = epoch

@@ -16,8 +16,10 @@ def setup_logger(level=logging.INFO):
             "CRITICAL": "bold_red",
         },
     )
-
-    handler.setFormatter(formatter)
+    if not sys.stdout.isatty():
+        handler.setFormatter(logging.Formatter("[%(levelname)s] %(asctime)s - %(name)s: %(message)s"))
+    else:
+        handler.setFormatter(formatter)
 
     # Configure root logger
     logging.basicConfig(

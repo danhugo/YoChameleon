@@ -20,3 +20,4 @@ create_training_data/retrieve_negative/download_random_images.py
 mini_data
 *.zip
 exps
+wandb
