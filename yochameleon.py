@@ -3,6 +3,7 @@ import torch
 import wandb
 import numpy as np
 import html
+from accelerate import Accelerator
 
 from PIL import Image
 from evaluation.clip_image_similarity import CLIPEvaluator
@@ -55,6 +56,7 @@ class YoChameleonTrainer:
 		self.weighted_acc = 0.0
 		self.mean_clip = 0.0
 		self.avg_metric = 0.0
+		self.accelerator = Accelerator(gradient_accumulation_steps=self.config.gradient_accumulation_steps)
 
 	def _get_model(self) -> tuple[ChameleonProcessor, ChameleonForConditionalGeneration]:
 		"""Return: ChameleonProcessor, ChameleonModel"""
@@ -63,6 +65,11 @@ class YoChameleonTrainer:
 		model.generation_config.pad_token_id = processor.tokenizer.pad_token_id
 		logger.info(f'Loaded {self.config.model_id}!')
 		return processor, model
+	
+	def _wrap_with_accelarator(self, model, optimizer, training_dataloader, scheduler=None):
+		return self.accelerator.prepare(
+    		model, optimizer, training_dataloader, scheduler
+		)
 	
 	def _prepare_personalized_tokens(self):
 		"""Return: personalized_tokens, personalized_token_ids, generation_prompt, understanding_prompt"""
@@ -237,11 +244,15 @@ class YoChameleonTrainer:
 			self.index_no_updates[self.personalized_token_ids] = False
 
 	def train(
-			self, 
+			self,
 			dataloader: DataLoader, 
 			recognition_data_loader_train: DataLoader | None = None, 
 			recognition_data_loader_test: DataLoader | None = None
 			) -> None:
+		self.model, self.optimizer, dataloader, self.scheduler = self._wrap_with_accelarator(
+			self.model, self.optimizer, dataloader, self.scheduler
+		)
+		
 		#TODO: need to check again type(recognition_data_loader_train) is Dataset or Dataloader
 		if not self.config.no_wandb:
 			self.wandb.log({"Dataset/Train_dataset_length": len(dataloader.dataset)})

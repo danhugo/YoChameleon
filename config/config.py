@@ -94,6 +94,7 @@ class GeneralConfig(BaseModel):
     iteration: int
     epoch: int
     batch_size: int
+    gradient_accumulation_steps: int
 
     save_every: int
 

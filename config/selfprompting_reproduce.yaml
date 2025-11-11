@@ -5,9 +5,9 @@ model_id: 'leloy/Anole-7b-v0.1-hf'
 data_root: '/root/workspace/YoChameleon/mini_data'
 
 no_wandb: False
-sks_name: 'bo'
+sks_name: 'mam'
 prefix_token: 16
-exp_name: 'run_271025'
+exp_name: 'run_mam_311025'
 self_prompting: True
 
 iteration: 15 # Currently iteration = epoch
@@ -15,6 +15,7 @@ epoch: 15 # Currently it will use epochs for training
 save_every: 2 # save every epoch
 
 batch_size: 1
+gradient_accumulation_steps: 4
 savedir: '/root/workspace/YoChameleon/exps'
 whole_model: False
 tokenizer_max_length: 1500
@@ -22,7 +23,7 @@ eval_visualization: True
 
 optimizer:
   type: 'AdamW'
-  lr: 0.001
+  lr: 6e-4
   betas: [0.9, 0.999]
   weight_decay: 1e-4
   eps: 1e-6
